@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pprint
 import time
+from pathlib import Path
 
 import requests
 
@@ -32,6 +34,7 @@ def main() -> None:
     parser.add_argument("--config", action="append", required=True)
     parser.add_argument("--frames", type=int, default=10)
     parser.add_argument("--scan-pose-candidates", action="store_true")
+    parser.add_argument("--save-json", default="")
     args = parser.parse_args()
 
     cfg = resolve_config(args.config)
@@ -50,6 +53,7 @@ def main() -> None:
             ats_running,
             frames=max(args.frames, 2),
             scan_pose_candidates=args.scan_pose_candidates,
+            save_json=args.save_json,
         )
         return
     else:
@@ -108,6 +112,7 @@ def _print_shared_memory_diagnostics(
     ats_running: bool,
     frames: int,
     scan_pose_candidates: bool,
+    save_json: str,
 ) -> None:
     mapping_name = cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats")
     plugin_dll_name = cfg_get(cfg, "telemetry.plugin_dll_name", "atssharedplugin64v2.dll")
@@ -137,6 +142,7 @@ def _print_shared_memory_diagnostics(
             frames,
             scan_pose_candidates=scan_pose_candidates,
             cfg=cfg,
+            save_json=save_json,
         )
 
     category, details = classify_telemetry_probe_status(
@@ -165,6 +171,7 @@ def _sample_shared_memory_v2(
     *,
     scan_pose_candidates: bool,
     cfg: dict,
+    save_json: str,
 ) -> tuple[bool, str | None, bool | None]:
     source = SharedMemoryV2TelemetrySource(
         SharedMemoryV2Config(
@@ -175,6 +182,7 @@ def _sample_shared_memory_v2(
             absolute_value_format=cfg_get(cfg, "telemetry.absolute_value_format", "f64"),
             pose_frame_mode=cfg_get(cfg, "telemetry.pose_frame_mode", "anchored_local"),
             absolute_heading_min_distance_m=float(cfg_get(cfg, "telemetry.absolute_heading_min_distance_m", 0.25)),
+            absolute_discontinuity_distance_m=float(cfg_get(cfg, "telemetry.absolute_discontinuity_distance_m", 25.0)),
         )
     )
     try:
@@ -220,6 +228,9 @@ def _sample_shared_memory_v2(
                 f"absolute_heading={_fmt_optional(state.absolute_heading_rad)} "
                 f"anchor_heading={_fmt_optional(state.anchor_heading_rad)} "
                 f"anchor_locked={'yes' if state.anchor_heading_locked else 'no'} "
+                f"discontinuity={'yes' if state.discontinuity_detected else 'no'} "
+                f"reset_reason={state.anchor_reset_reason or 'n/a'} "
+                f"jump_distance={_fmt_optional(state.discontinuity_distance_m)} "
                 f"absolute_world=({_fmt_optional(state.absolute_world_x_m)}, {_fmt_optional(state.absolute_world_y_m)}, {_fmt_optional(state.absolute_world_z_m)}) "
                 f"speed_limit_kph={_fmt_optional(state.speed_limit_kph_candidate)} "
                 f"route_distance_km={_fmt_optional(state.route_distance_km_candidate)} "
@@ -253,6 +264,43 @@ def _sample_shared_memory_v2(
                 f"  - z offset={candidate.offset} format={candidate.value_format} "
                 f"corr={candidate.correlation:.4f} slope={candidate.slope:.4f} span={candidate.span:.4f}"
             )
+    if save_json:
+        payload = [
+            {
+                "frame": frame.to_dict(),
+                "state": {
+                    "game_tag": state.game_tag,
+                    "state_code": state.state_code,
+                    "tick_candidate": state.tick_candidate,
+                    "update_token": state.update_token,
+                    "velocity_x_mps": state.velocity_x_mps,
+                    "velocity_z_mps": state.velocity_z_mps,
+                    "speed_mps": state.speed_mps,
+                    "engine_rpm": state.engine_rpm,
+                    "gear": state.gear,
+                    "displayed_gear": state.displayed_gear,
+                    "throttle": state.throttle,
+                    "pose_source": state.pose_source,
+                    "pose_frame": state.pose_frame,
+                    "heading_source": state.heading_source,
+                    "absolute_heading_rad": state.absolute_heading_rad,
+                    "anchor_heading_rad": state.anchor_heading_rad,
+                    "anchor_heading_locked": state.anchor_heading_locked,
+                    "discontinuity_detected": state.discontinuity_detected,
+                    "discontinuity_distance_m": state.discontinuity_distance_m,
+                    "anchor_reset_count": state.anchor_reset_count,
+                    "anchor_reset_reason": state.anchor_reset_reason,
+                    "absolute_world_x_m": state.absolute_world_x_m,
+                    "absolute_world_y_m": state.absolute_world_y_m,
+                    "absolute_world_z_m": state.absolute_world_z_m,
+                },
+            }
+            for frame, state, _ in sampled_frames
+        ]
+        path = Path(save_json)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"saved decode json: {path}")
     print(f"decode probe: OK ({len(sampled_frames)} frames, update_token_changed={'yes' if tick_advanced else 'no'})")
     return True, None, tick_advanced
 

@@ -54,6 +54,7 @@ def main() -> None:
                     "absolute_value_format": source.config.absolute_value_format,
                     "pose_frame_mode": source.config.pose_frame_mode,
                     "absolute_heading_min_distance_m": source.config.absolute_heading_min_distance_m,
+                    "absolute_discontinuity_distance_m": source.config.absolute_discontinuity_distance_m,
                 },
                 ensure_ascii=False,
             )
@@ -111,6 +112,7 @@ def _build_shared_memory_v2_config(cfg: dict) -> SharedMemoryV2Config:
         absolute_value_format=cfg_get(cfg, "telemetry.absolute_value_format", "f64"),
         pose_frame_mode=cfg_get(cfg, "telemetry.pose_frame_mode", "anchored_local"),
         absolute_heading_min_distance_m=float(cfg_get(cfg, "telemetry.absolute_heading_min_distance_m", 0.25)),
+        absolute_discontinuity_distance_m=float(cfg_get(cfg, "telemetry.absolute_discontinuity_distance_m", 25.0)),
     )
 
 

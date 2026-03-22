@@ -298,6 +298,130 @@ def test_shared_memory_v2_decoder_holds_last_absolute_heading_between_updates():
     assert decoder.last_state.heading_source == "absolute_position_hold"
 
 
+def test_shared_memory_v2_decoder_resets_anchor_after_large_absolute_jump():
+    decoder = SharedMemoryV2Decoder(
+        SharedMemoryV2Config(
+            absolute_x_offset=285,
+            absolute_z_offset=301,
+            absolute_value_format="f64",
+            pose_frame_mode="anchored_local",
+            absolute_heading_min_distance_m=0.25,
+            absolute_discontinuity_distance_m=25.0,
+        )
+    )
+
+    decoder.decode(
+        _build_shared_memory_v2_buffer(
+            velocity_x_mps=-4.0,
+            velocity_z_mps=0.0,
+            speed_mps=4.0,
+            absolute_x_m=1000.0,
+            absolute_z_m=2000.0,
+        ),
+        mono_time_s=10.0,
+    )
+    decoder.decode(
+        _build_shared_memory_v2_buffer(
+            tick=1005.0,
+            velocity_x_mps=-4.0,
+            velocity_z_mps=0.0,
+            speed_mps=4.0,
+            absolute_x_m=992.0,
+            absolute_z_m=2000.0,
+        ),
+        mono_time_s=12.0,
+    )
+    jumped = decoder.decode(
+        _build_shared_memory_v2_buffer(
+            tick=1010.0,
+            velocity_x_mps=0.0,
+            velocity_z_mps=0.0,
+            speed_mps=0.0,
+            absolute_x_m=1300.0,
+            absolute_z_m=2600.0,
+        ),
+        mono_time_s=13.0,
+    )
+
+    assert jumped.pose.world_x == pytest.approx(0.0)
+    assert jumped.pose.world_z == pytest.approx(0.0)
+    assert jumped.pose.yaw_rad == pytest.approx(0.0)
+    assert decoder.last_state is not None
+    assert decoder.last_state.pose_frame == "anchored_local_pending_heading"
+    assert decoder.last_state.anchor_heading_locked is False
+    assert decoder.last_state.discontinuity_detected is True
+    assert decoder.last_state.anchor_reset_count == 1
+    assert decoder.last_state.anchor_reset_reason == "absolute_position_jump"
+    assert decoder.last_state.discontinuity_distance_m == pytest.approx(math.hypot(308.0, 600.0))
+
+
+def test_shared_memory_v2_decoder_relocks_after_discontinuity_reset():
+    decoder = SharedMemoryV2Decoder(
+        SharedMemoryV2Config(
+            absolute_x_offset=285,
+            absolute_z_offset=301,
+            absolute_value_format="f64",
+            pose_frame_mode="anchored_local",
+            absolute_heading_min_distance_m=0.25,
+            absolute_discontinuity_distance_m=25.0,
+        )
+    )
+
+    decoder.decode(
+        _build_shared_memory_v2_buffer(
+            velocity_x_mps=-4.0,
+            velocity_z_mps=0.0,
+            speed_mps=4.0,
+            absolute_x_m=1000.0,
+            absolute_z_m=2000.0,
+        ),
+        mono_time_s=10.0,
+    )
+    decoder.decode(
+        _build_shared_memory_v2_buffer(
+            tick=1005.0,
+            velocity_x_mps=-4.0,
+            velocity_z_mps=0.0,
+            speed_mps=4.0,
+            absolute_x_m=992.0,
+            absolute_z_m=2000.0,
+        ),
+        mono_time_s=12.0,
+    )
+    decoder.decode(
+        _build_shared_memory_v2_buffer(
+            tick=1010.0,
+            velocity_x_mps=0.0,
+            velocity_z_mps=0.0,
+            speed_mps=0.0,
+            absolute_x_m=1300.0,
+            absolute_z_m=2600.0,
+        ),
+        mono_time_s=13.0,
+    )
+    relocked = decoder.decode(
+        _build_shared_memory_v2_buffer(
+            tick=1015.0,
+            velocity_x_mps=0.0,
+            velocity_z_mps=-4.0,
+            speed_mps=4.0,
+            absolute_x_m=1300.0,
+            absolute_z_m=2592.0,
+        ),
+        mono_time_s=15.0,
+    )
+
+    assert relocked.pose.world_x == pytest.approx(8.0)
+    assert relocked.pose.world_z == pytest.approx(0.0, abs=1e-6)
+    assert relocked.pose.yaw_rad == pytest.approx(0.0, abs=1e-6)
+    assert decoder.last_state is not None
+    assert decoder.last_state.pose_frame == "anchored_local"
+    assert decoder.last_state.heading_source == "absolute_position_delta"
+    assert decoder.last_state.anchor_heading_locked is True
+    assert decoder.last_state.discontinuity_detected is False
+    assert decoder.last_state.anchor_reset_count == 1
+
+
 def test_validate_runtime_config_accepts_shared_memory_v2():
     issues = validate_runtime_config(
         {

@@ -88,6 +88,9 @@ class AutopilotApp:
                     absolute_heading_min_distance_m=float(
                         cfg_get(cfg, "telemetry.absolute_heading_min_distance_m", 0.25)
                     ),
+                    absolute_discontinuity_distance_m=float(
+                        cfg_get(cfg, "telemetry.absolute_discontinuity_distance_m", 25.0)
+                    ),
                 )
             )
         else:
@@ -314,6 +317,10 @@ class AutopilotApp:
                     "absolute_heading_rad": getattr(telemetry_state, "absolute_heading_rad", None),
                     "anchor_heading_rad": getattr(telemetry_state, "anchor_heading_rad", None),
                     "anchor_heading_locked": getattr(telemetry_state, "anchor_heading_locked", False),
+                    "discontinuity_detected": getattr(telemetry_state, "discontinuity_detected", False),
+                    "discontinuity_distance_m": getattr(telemetry_state, "discontinuity_distance_m", None),
+                    "anchor_reset_count": getattr(telemetry_state, "anchor_reset_count", 0),
+                    "anchor_reset_reason": getattr(telemetry_state, "anchor_reset_reason", None),
                     "pose_delta_m": pose_delta_m,
                     "yaw_rad": frame.pose.yaw_rad,
                     "map_match_confidence": matched.confidence if matched else 0.0,
@@ -330,7 +337,7 @@ class AutopilotApp:
         telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
         if self._step_count % self.ctx.status_log_interval_frames == 0:
             logger.info(
-                "step=%s mode=%s speed=%.2f fresh_ms=%.1f pose=%s/%s heading_src=%s anchor=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s",
+                "step=%s mode=%s speed=%.2f fresh_ms=%.1f pose=%s/%s heading_src=%s anchor=%s reset=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s",
                 self._step_count,
                 self.mode,
                 frame.speed_mps,
@@ -339,6 +346,7 @@ class AutopilotApp:
                 getattr(telemetry_state, "pose_frame", "unknown"),
                 getattr(telemetry_state, "heading_source", "unknown"),
                 "locked" if getattr(telemetry_state, "anchor_heading_locked", False) else "pending",
+                getattr(telemetry_state, "anchor_reset_reason", None),
                 matched.confidence if matched else 0.0,
                 round(matched.cross_track_error_m, 2) if matched else None,
                 round(matched.heading_error_rad, 3) if matched else None,

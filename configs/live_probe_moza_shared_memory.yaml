@@ -12,6 +12,7 @@ telemetry:
   absolute_value_format: "f64"
   pose_frame_mode: "anchored_local"
   absolute_heading_min_distance_m: 0.25
+  absolute_discontinuity_distance_m: 25.0
 
 control:
   sink: "noop"

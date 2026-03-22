@@ -61,6 +61,7 @@ class SharedMemoryV2Config:
     pose_frame_mode: str = "anchored_local"
     heading_min_speed_mps: float = 0.25
     absolute_heading_min_distance_m: float = 0.25
+    absolute_discontinuity_distance_m: float = 25.0
 
 
 @dataclass(slots=True)
@@ -85,6 +86,10 @@ class SharedMemoryV2State:
     absolute_heading_rad: float | None = None
     anchor_heading_rad: float | None = None
     anchor_heading_locked: bool = False
+    discontinuity_detected: bool = False
+    discontinuity_distance_m: float | None = None
+    anchor_reset_count: int = 0
+    anchor_reset_reason: str | None = None
     absolute_world_x_m: float | None = None
     absolute_world_y_m: float | None = None
     absolute_world_z_m: float | None = None
@@ -162,6 +167,9 @@ class SharedMemoryV2Decoder:
         self._heading_reference_x_m: float | None = None
         self._heading_reference_z_m: float | None = None
         self._last_absolute_heading_rad: float | None = None
+        self._last_absolute_sample_x_m: float | None = None
+        self._last_absolute_sample_z_m: float | None = None
+        self._anchor_reset_count: int = 0
 
     def decode(self, raw: bytes, mono_time_s: float | None = None) -> TelemetryFrame:
         game_tag = self._validate_buffer(raw)
@@ -206,6 +214,20 @@ class SharedMemoryV2Decoder:
         absolute_world_x_m = self._read_optional_position(raw, self.config.absolute_x_offset)
         absolute_world_y_m = self._read_optional_position(raw, self.config.absolute_y_offset)
         absolute_world_z_m = self._read_optional_position(raw, self.config.absolute_z_offset)
+        discontinuity_detected = False
+        discontinuity_distance_m = None
+        anchor_reset_reason = None
+        if absolute_world_x_m is not None and absolute_world_z_m is not None:
+            discontinuity_distance_m, discontinuity_detected = self._check_absolute_discontinuity(
+                absolute_world_x_m=absolute_world_x_m,
+                absolute_world_z_m=absolute_world_z_m,
+            )
+            if discontinuity_detected:
+                anchor_reset_reason = "absolute_position_jump"
+                self._reset_absolute_tracking(
+                    absolute_world_x_m=absolute_world_x_m,
+                    absolute_world_z_m=absolute_world_z_m,
+                )
         absolute_heading_rad = self._derive_absolute_heading(
             absolute_world_x_m=absolute_world_x_m,
             absolute_world_z_m=absolute_world_z_m,
@@ -256,6 +278,10 @@ class SharedMemoryV2Decoder:
             absolute_heading_rad=absolute_heading_rad,
             anchor_heading_rad=self._anchor_heading_rad,
             anchor_heading_locked=self._anchor_heading_rad is not None,
+            discontinuity_detected=discontinuity_detected,
+            discontinuity_distance_m=discontinuity_distance_m,
+            anchor_reset_count=self._anchor_reset_count,
+            anchor_reset_reason=anchor_reset_reason,
             absolute_world_x_m=absolute_world_x_m,
             absolute_world_y_m=absolute_world_y_m,
             absolute_world_z_m=absolute_world_z_m,
@@ -355,6 +381,39 @@ class SharedMemoryV2Decoder:
         self._heading_reference_z_m = absolute_world_z_m
         self._last_absolute_heading_rad = math.atan2(dz, dx)
         return self._last_absolute_heading_rad
+
+    def _check_absolute_discontinuity(
+        self,
+        *,
+        absolute_world_x_m: float,
+        absolute_world_z_m: float,
+    ) -> tuple[float | None, bool]:
+        if self._last_absolute_sample_x_m is None or self._last_absolute_sample_z_m is None:
+            self._last_absolute_sample_x_m = absolute_world_x_m
+            self._last_absolute_sample_z_m = absolute_world_z_m
+            return None, False
+
+        distance_m = math.hypot(
+            absolute_world_x_m - self._last_absolute_sample_x_m,
+            absolute_world_z_m - self._last_absolute_sample_z_m,
+        )
+        self._last_absolute_sample_x_m = absolute_world_x_m
+        self._last_absolute_sample_z_m = absolute_world_z_m
+        return distance_m, distance_m >= self.config.absolute_discontinuity_distance_m
+
+    def _reset_absolute_tracking(
+        self,
+        *,
+        absolute_world_x_m: float,
+        absolute_world_z_m: float,
+    ) -> None:
+        self._anchor_absolute_x_m = absolute_world_x_m
+        self._anchor_absolute_z_m = absolute_world_z_m
+        self._anchor_heading_rad = None
+        self._heading_reference_x_m = absolute_world_x_m
+        self._heading_reference_z_m = absolute_world_z_m
+        self._last_absolute_heading_rad = None
+        self._anchor_reset_count += 1
 
     def _select_heading(
         self,
