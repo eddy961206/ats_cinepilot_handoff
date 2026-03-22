@@ -12,3 +12,4 @@ data/replays/*.jsonl
 data/calibrations/*.png
 data/debug/
 data/tools/
+data/captures/
