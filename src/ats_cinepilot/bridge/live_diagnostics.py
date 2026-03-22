@@ -25,6 +25,9 @@ class TelemetryProbeStatus:
     mapping_error: str | None = None
     game_log_plugin_loaded: bool = False
     game_log_initialized: bool = False
+    decode_supported: bool | None = None
+    decode_error: str | None = None
+    tick_advanced: bool | None = None
 
 
 @dataclass(slots=True)
@@ -40,6 +43,23 @@ class ControlProbeStatus:
 
 def classify_telemetry_probe_status(status: TelemetryProbeStatus) -> tuple[str, list[str]]:
     details: list[str] = []
+    if status.mapping_present and status.decode_supported is True and status.tick_advanced is not False:
+        details.append(f"{status.mapping_name} is visible and decodes successfully.")
+        if status.tick_advanced:
+            details.append("Live update token changed across sampled frames.")
+        return "telemetry ready", details
+
+    if status.mapping_present and status.decode_supported is True and status.tick_advanced is False:
+        details.append(f"{status.mapping_name} is visible and decodes successfully.")
+        details.append("Live update token did not change across sampled frames.")
+        return "mapping visible but stale/non-updating", details
+
+    if status.mapping_present and status.decode_supported is False:
+        details.append(f"{status.mapping_name} is visible.")
+        if status.decode_error:
+            details.append(status.decode_error)
+        return "mapping visible but unsupported layout", details
+
     if status.mapping_present:
         details.append(f"{status.mapping_name} is visible.")
         return "telemetry ready", details

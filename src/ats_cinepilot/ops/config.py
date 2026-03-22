@@ -77,7 +77,7 @@ def validate_runtime_config(cfg: dict[str, Any], mode: str = "shadow") -> list[s
         elif not Path(replay_path).exists():
             issues.append(f"logging.replay_path does not exist: {replay_path}")
     elif telemetry_source == "shared_memory_v2":
-        shared_memory_name = cfg_get(cfg, "telemetry.shared_memory_name")
+        shared_memory_name = cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats")
         if not shared_memory_name:
             issues.append("telemetry.shared_memory_name is required when telemetry.source=shared_memory_v2")
     elif telemetry_source == "json_http":
