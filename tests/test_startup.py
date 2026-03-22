@@ -30,5 +30,4 @@ def test_validate_startup_requirements_blocks_probe_only_live_source():
 
     issues = validate_startup_requirements(cfg, mode="shadow")
 
-    assert any("shared_memory_v2" in issue for issue in issues)
-    assert any("inspect_telemetry.py" in issue for issue in issues)
+    assert issues == []

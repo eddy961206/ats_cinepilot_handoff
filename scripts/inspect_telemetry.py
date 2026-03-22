@@ -7,7 +7,14 @@ import time
 import requests
 
 from ats_cinepilot.bridge.scs_telemetry import _lookup_dotted
-from ats_cinepilot.bridge.scs_telemetry import HttpJsonTelemetrySource, JsonTelemetryConfig, ReplayTelemetrySource
+from ats_cinepilot.bridge.scs_telemetry import (
+    HttpJsonTelemetrySource,
+    JsonTelemetryConfig,
+    ReplayTelemetrySource,
+    SharedMemoryV2AttachError,
+    SharedMemoryV2Config,
+    SharedMemoryV2TelemetrySource,
+)
 from ats_cinepilot.bridge.live_diagnostics import (
     TelemetryProbeStatus,
     classify_telemetry_probe_status,
@@ -36,7 +43,7 @@ def main() -> None:
         print(f"replay path: {replay_path}")
         source = ReplayTelemetrySource(cfg_get(cfg, "logging.replay_path"))
     elif source_name == "shared_memory_v2":
-        _print_shared_memory_diagnostics(cfg, ats_running)
+        _print_shared_memory_diagnostics(cfg, ats_running, frames=max(args.frames, 2))
         return
     else:
         _print_shared_memory_probe(cfg)
@@ -89,8 +96,8 @@ def _print_http_probe(cfg: dict) -> None:
         print(f"http probe: FAILED after {elapsed_ms:.1f}ms ({exc})")
 
 
-def _print_shared_memory_diagnostics(cfg: dict, ats_running: bool) -> None:
-    mapping_name = cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2")
+def _print_shared_memory_diagnostics(cfg: dict, ats_running: bool, frames: int) -> None:
+    mapping_name = cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats")
     plugin_dll_name = cfg_get(cfg, "telemetry.plugin_dll_name", "atssharedplugin64v2.dll")
     game_dir = find_ats_game_dir()
     plugin_path = None
@@ -109,6 +116,12 @@ def _print_shared_memory_diagnostics(cfg: dict, ats_running: bool) -> None:
     if probe.error:
         print(f"mapping error: {probe.error}")
 
+    decode_supported: bool | None = None
+    decode_error: str | None = None
+    tick_advanced: bool | None = None
+    if probe.exists:
+        decode_supported, decode_error, tick_advanced = _sample_shared_memory_v2(mapping_name, frames)
+
     category, details = classify_telemetry_probe_status(
         TelemetryProbeStatus(
             ats_running=ats_running,
@@ -119,11 +132,75 @@ def _print_shared_memory_diagnostics(cfg: dict, ats_running: bool) -> None:
             mapping_error=probe.error,
             game_log_plugin_loaded=game_log_plugin_loaded,
             game_log_initialized=game_log_initialized,
+            decode_supported=decode_supported,
+            decode_error=decode_error,
+            tick_advanced=tick_advanced,
         )
     )
     print(f"telemetry status: {category}")
     for detail in details:
         print(f"  - {detail}")
+
+
+def _sample_shared_memory_v2(mapping_name: str, frames: int) -> tuple[bool, str | None, bool | None]:
+    source = SharedMemoryV2TelemetrySource(SharedMemoryV2Config(mapping_name=mapping_name))
+    try:
+        source.connect()
+    except SharedMemoryV2AttachError as exc:
+        print(f"decode probe: FAILED ({exc})")
+        return False, str(exc), None
+
+    sampled_frames = []
+    try:
+        for index in range(frames):
+            frame = source.read()
+            state = source.last_state
+            if frame is None or state is None:
+                print(f"decoded frame[{index}]: FAILED ({source.last_error or 'unknown read error'})")
+                return False, source.last_error or "shared_memory_v2 read failed", None
+            sampled_frames.append((frame, state))
+            print(
+                "decoded frame[{index}]: "
+                "update_token={tick} paused={paused} speed_mps={speed:.3f} "
+                "rpm={rpm:.1f} gear={gear}/{displayed_gear} throttle={throttle:.3f} "
+                "pose=({x:.2f}, {z:.2f}, yaw={yaw:.3f})".format(
+                    index=index,
+                    tick=frame.game_tick,
+                    paused=frame.paused,
+                    speed=frame.speed_mps,
+                    rpm=state.engine_rpm,
+                    gear=state.gear,
+                    displayed_gear=state.displayed_gear,
+                    throttle=state.throttle,
+                    x=frame.pose.world_x,
+                    z=frame.pose.world_z,
+                    yaw=frame.pose.yaw_rad,
+                )
+            )
+            print(
+                "  decoded candidates: "
+                f"game_tag={state.game_tag!r} state_code={state.state_code:.1f} "
+                f"tick_candidate={state.tick_candidate:.6f} "
+                f"velocity=({state.velocity_x_mps:.3f}, {state.velocity_z_mps:.3f}) "
+                f"speed_limit_kph={_fmt_optional(state.speed_limit_kph_candidate)} "
+                f"route_distance_km={_fmt_optional(state.route_distance_km_candidate)} "
+                f"route_time_min={_fmt_optional(state.route_time_min_candidate)}"
+            )
+            if index + 1 < frames:
+                time.sleep(0.15)
+    finally:
+        source.close()
+
+    ticks = [frame.game_tick for frame, _ in sampled_frames]
+    tick_advanced = len(set(ticks)) > 1
+    print(f"decode probe: OK ({len(sampled_frames)} frames, update_token_changed={'yes' if tick_advanced else 'no'})")
+    return True, None, tick_advanced
+
+
+def _fmt_optional(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.3f}"
 
 
 if __name__ == "__main__":

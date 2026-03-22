@@ -4,7 +4,7 @@ extends:
 
 telemetry:
   source: "shared_memory_v2"
-  shared_memory_name: "SCSTelemetrySharedv2"
+  shared_memory_name: "SCSTelemetrySharedv2_ats"
   plugin_dll_name: "atssharedplugin64v2.dll"
 
 control:

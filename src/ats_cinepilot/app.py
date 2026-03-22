@@ -13,7 +13,13 @@ from ats_cinepilot.bridge.scs_controls import (
     NoopControlSink,
     RecordingControlSink,
 )
-from ats_cinepilot.bridge.scs_telemetry import HttpJsonTelemetrySource, JsonTelemetryConfig, ReplayTelemetrySource
+from ats_cinepilot.bridge.scs_telemetry import (
+    HttpJsonTelemetrySource,
+    JsonTelemetryConfig,
+    ReplayTelemetrySource,
+    SharedMemoryV2Config,
+    SharedMemoryV2TelemetrySource,
+)
 from ats_cinepilot.control.lateral_pure_pursuit import AdaptivePurePursuit, AdaptivePurePursuitConfig
 from ats_cinepilot.control.longitudinal_pid import PidConfig, PidSpeedController
 from ats_cinepilot.control.mixer import build_vehicle_command
@@ -67,6 +73,12 @@ class AutopilotApp:
         telemetry_source_name = cfg_get(cfg, "telemetry.source", "json_http")
         if telemetry_source_name == "replay":
             telemetry_source = ReplayTelemetrySource(cfg_get(cfg, "logging.replay_path"))
+        elif telemetry_source_name == "shared_memory_v2":
+            telemetry_source = SharedMemoryV2TelemetrySource(
+                SharedMemoryV2Config(
+                    mapping_name=cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats")
+                )
+            )
         else:
             telemetry_source = HttpJsonTelemetrySource(
                 JsonTelemetryConfig(
@@ -203,6 +215,11 @@ class AutopilotApp:
                 self.ctx.capture_source.stop()
             except Exception:
                 logger.exception("capture stop failed")
+        if hasattr(self.ctx.telemetry_source, "close"):
+            try:
+                self.ctx.telemetry_source.close()
+            except Exception:
+                logger.exception("telemetry close failed")
         try:
             self.ctx.control_sink.neutralize()
         except Exception:
