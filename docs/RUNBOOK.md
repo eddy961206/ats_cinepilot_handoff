@@ -40,11 +40,20 @@
 - confidence가 낮으면 해제부터 강화해
 - 딥러닝 모델은 나중
 
+## PR Workflow
+
+- 항상 `main`에서 새 브랜치를 만든 뒤 작업해
+- 항상 PR을 열고 리뷰 가능한 diff 상태로 남겨
+- 리뷰 없이 self-merge 하지 마
+- PR 본문에는 정확한 명령어와 실제 결과를 그대로 적어
+
 ## 실제 해석 규칙
 
 ### `inspect_telemetry.py`
 - `Local\SCSTelemetry: not visible`이면 shared-memory telemetry plugin이 아직 안 보이는 상태다.
 - `http probe: FAILED`이면 JSON wrapper endpoint가 아직 안 떠 있거나 포트/스키마가 다르다.
+- `telemetry status: named shared memory missing`이고 `Plugin DLL was loaded by ATS`가 같이 나오면, ATS는 켜졌지만 shared memory가 아직 초기화되지 않은 상태다.
+- 이번 세션에서 선택한 live telemetry 경로는 `configs/live_probe_moza_shared_memory.yaml`이다.
 
 ### `inspect_controls.py`
 - `module import: FAILED`면 Python 쪽 `scscontroller.py`가 아직 없다.

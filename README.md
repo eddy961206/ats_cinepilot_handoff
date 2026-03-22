@@ -54,8 +54,8 @@ ats_cinepilot_handoff/
 2. `.\scripts\setup_venv.ps1`
 3. `ats-cinepilot check-config --config configs/profiles/replay_demo.yaml`
 4. `ats-cinepilot run --config configs/profiles/replay_demo.yaml --mode shadow --steps 300`
-5. 외부 telemetry/control plugin 설치
-6. `python scripts/inspect_telemetry.py --config configs/default.yaml`
+5. `ats-cinepilot check-config --config configs/live_probe_moza_shared_memory.yaml`
+6. `python scripts/inspect_telemetry.py --config configs/live_probe_moza_shared_memory.yaml`
 7. `python scripts/inspect_controls.py --config configs/default.yaml --dry-run`
 8. `python scripts/calibrate_hud.py ...` 로 HUD 마스크 캘리브레이션
 9. 실 telemetry shadow mode
@@ -72,7 +72,7 @@ ats_cinepilot_handoff/
 실 ATS 연결 전 확인:
 
 ```powershell
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\default.yaml
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_moza_shared_memory.yaml
 .\.venv\Scripts\python scripts\inspect_controls.py --config configs\default.yaml --dry-run
 ```
 
@@ -102,6 +102,14 @@ ats_cinepilot_handoff/
 - `scs-sdk-controller` 기반 실제 control write
 - HUD 실제 캘리브레이션
 - active mode
+
+지금 선택된 live telemetry 경로는 `SCSTelemetrySharedv2` shared memory고, 이건 `configs/live_probe_moza_shared_memory.yaml`에 반영돼 있어.
+
+이번 세션에서 실제로 확인한 blocker는 이거야.
+- ATS는 설치돼 있고 실행도 됐음
+- `atssharedplugin64v2.dll`도 로드됐음
+- 하지만 메인 메뉴의 SDK 확인 팝업 gate 때문에 `SCSTelemetrySharedv2`가 아직 열리지 않았음
+- direct reader도 아직 구현 안 됐음
 
 그 대신, codex가 헤매지 않도록:
 - 모듈 경계를 강하게 나눴고

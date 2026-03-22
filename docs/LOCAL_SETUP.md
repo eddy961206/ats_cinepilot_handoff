@@ -18,6 +18,11 @@
 - 예: RenCloud `scs-sdk-plugin`
 - 기대 shared memory 이름: `Local\SCSTelemetry`
 
+현재 이 머신에서 실제로 잡힌 경로:
+- plugin DLL: `D:\Steam\steamapps\common\American Truck Simulator\bin\win_x64\plugins\atssharedplugin64v2.dll`
+- shared memory 이름: `SCSTelemetrySharedv2`
+- 추천 live probe config: `configs/live_probe_moza_shared_memory.yaml`
+
 권장 경로 B:
 - JSON wrapper 서비스
 - 기본 config는 `http://127.0.0.1:25555/api/telemetry`를 가정함
@@ -70,18 +75,34 @@ replay만 먼저 확인할 때:
 .\.venv\Scripts\ats-cinepilot check-config --config configs\default.yaml
 ```
 
+선택한 live telemetry probe 설정:
+
+```powershell
+.\.venv\Scripts\ats-cinepilot check-config --config configs\live_probe_moza_shared_memory.yaml
+```
+
 ## 5. smoke test
 
 ### telemetry
 
 ```powershell
-python scripts\inspect_telemetry.py --config configs\default.yaml
+python scripts\inspect_telemetry.py --config configs\live_probe_moza_shared_memory.yaml
 ```
 
 이 스크립트는 이제 아래를 같이 보여준다.
-- HTTP endpoint 응답 여부
-- mapped field 값
-- `Local\SCSTelemetry` 가시성
+- ATS 실행 여부
+- selected shared memory 이름
+- plugin DLL 존재 여부
+- game.log 기준 plugin load 여부
+- shared memory initialized 여부 추정
+- 실패 분류 결과
+
+이번 세션의 실제 결과:
+- ATS 실행 중
+- `atssharedplugin64v2.dll` 존재
+- `game.log`에서 plugin load 확인
+- `SCSTelemetrySharedv2`는 아직 안 열림
+- 원인 추정: 메인 메뉴/SDK 확인 팝업 gate
 
 ### controls
 
@@ -91,13 +112,20 @@ python scripts\inspect_controls.py --config configs\default.yaml --dry-run
 
 이 스크립트는 이제 아래를 같이 보여준다.
 - `scscontroller` import 가능 여부
+- `scs_sdk_controller.dll` 존재 여부
 - `Local\SCSControls` 가시성
 - field mapping이 upstream client와 맞는지
+- 실패 분류 결과
 
 주의:
 - `scscontroller` 클라이언트는 스스로 shared memory를 만들 수 있다.
 - 그래서 "attach/apply 성공"만으로 ATS plugin이 실제로 듣고 있다고 단정하면 안 된다.
 - 반드시 **attach 전 probe 결과**도 같이 봐야 한다.
+
+이번 세션의 실제 결과:
+- `scscontroller` module 없음
+- `scs_sdk_controller.dll` 없음
+- 이 머신에는 아직 CMake / `cl`도 없음
 
 ## 6. HUD 캘리브레이션
 
@@ -116,6 +144,18 @@ ats-cinepilot run --config configs\profiles\replay_demo.yaml --mode shadow --ste
 ```
 
 이번 세션에서 위 커맨드는 실제로 성공했다.
+
+## 7.5 live probe / blocker 확인
+
+```powershell
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_moza_shared_memory.yaml --frames 1
+```
+
+현재 이 커맨드는 아래 blocker를 보여준다.
+- ATS는 실행 중
+- plugin DLL도 있음
+- 하지만 `SCSTelemetrySharedv2`가 아직 초기화되지 않음
+- 따라서 첫 live shadow run 전 단계에서 멈춰 있음
 
 ## 8. active mode 전 체크리스트
 
