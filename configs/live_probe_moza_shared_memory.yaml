@@ -6,6 +6,12 @@ telemetry:
   source: "shared_memory_v2"
   shared_memory_name: "SCSTelemetrySharedv2_ats"
   plugin_dll_name: "atssharedplugin64v2.dll"
+  absolute_x_offset: 285
+  absolute_y_offset: 293
+  absolute_z_offset: 301
+  absolute_value_format: "f64"
+  pose_frame_mode: "anchored_local"
+  absolute_heading_min_distance_m: 0.25
 
 control:
   sink: "noop"
@@ -18,3 +24,5 @@ logging:
 
 debug:
   overlay: false
+  status_log_interval_frames: 1
+  loop_sleep_ms: 50

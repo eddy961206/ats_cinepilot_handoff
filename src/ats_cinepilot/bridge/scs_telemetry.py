@@ -54,6 +54,13 @@ class SharedMemoryV2Config:
     speed_limit_kph_offset: int = 507
     route_distance_km_offset: int = 544
     route_time_min_offset: int = 548
+    absolute_x_offset: int | None = None
+    absolute_y_offset: int | None = None
+    absolute_z_offset: int | None = None
+    absolute_value_format: str = "f64"
+    pose_frame_mode: str = "anchored_local"
+    heading_min_speed_mps: float = 0.25
+    absolute_heading_min_distance_m: float = 0.25
 
 
 @dataclass(slots=True)
@@ -72,7 +79,15 @@ class SharedMemoryV2State:
     speed_limit_kph_candidate: float | None
     route_distance_km_candidate: float | None
     route_time_min_candidate: float | None
-    pose_source: str = "integrated_velocity"
+    pose_source: str = "relative_integrated_velocity"
+    pose_frame: str = "integrated_velocity_local"
+    heading_source: str = "velocity_direction"
+    absolute_heading_rad: float | None = None
+    anchor_heading_rad: float | None = None
+    anchor_heading_locked: bool = False
+    absolute_world_x_m: float | None = None
+    absolute_world_y_m: float | None = None
+    absolute_world_z_m: float | None = None
 
 
 class SharedMemoryV2AttachError(RuntimeError):
@@ -141,6 +156,12 @@ class SharedMemoryV2Decoder:
         self._last_yaw_rad: float = 0.0
         self._pose_x_m: float = 0.0
         self._pose_z_m: float = 0.0
+        self._anchor_absolute_x_m: float | None = None
+        self._anchor_absolute_z_m: float | None = None
+        self._anchor_heading_rad: float | None = None
+        self._heading_reference_x_m: float | None = None
+        self._heading_reference_z_m: float | None = None
+        self._last_absolute_heading_rad: float | None = None
 
     def decode(self, raw: bytes, mono_time_s: float | None = None) -> TelemetryFrame:
         game_tag = self._validate_buffer(raw)
@@ -166,8 +187,9 @@ class SharedMemoryV2Decoder:
         self._pose_x_m += velocity_x_mps * dt
         self._pose_z_m += velocity_z_mps * dt
 
-        if planar_speed_mps >= 0.25:
-            self._last_yaw_rad = math.atan2(velocity_z_mps, velocity_x_mps)
+        velocity_heading_rad = None
+        if planar_speed_mps >= self.config.heading_min_speed_mps:
+            velocity_heading_rad = math.atan2(velocity_z_mps, velocity_x_mps)
 
         update_token = zlib.crc32(raw)
         game_tick = int(update_token)
@@ -181,6 +203,25 @@ class SharedMemoryV2Decoder:
             route_distance_km=route_distance_km,
             route_time_min=route_time_min,
         )
+        absolute_world_x_m = self._read_optional_position(raw, self.config.absolute_x_offset)
+        absolute_world_y_m = self._read_optional_position(raw, self.config.absolute_y_offset)
+        absolute_world_z_m = self._read_optional_position(raw, self.config.absolute_z_offset)
+        absolute_heading_rad = self._derive_absolute_heading(
+            absolute_world_x_m=absolute_world_x_m,
+            absolute_world_z_m=absolute_world_z_m,
+        )
+        heading_rad, heading_source = self._select_heading(
+            absolute_heading_rad=absolute_heading_rad,
+            velocity_heading_rad=velocity_heading_rad,
+            absolute_position_available=absolute_world_x_m is not None and absolute_world_z_m is not None,
+        )
+        pose_x_m, pose_z_m, pose_yaw_rad, pose_frame, pose_source = self._select_pose(
+            absolute_world_x_m=absolute_world_x_m,
+            absolute_world_z_m=absolute_world_z_m,
+            heading_rad=heading_rad,
+            heading_source=heading_source,
+        )
+        self._last_yaw_rad = pose_yaw_rad
         frame = TelemetryFrame(
             mono_time_s=mono_time_s,
             game_tick=game_tick,
@@ -189,9 +230,9 @@ class SharedMemoryV2Decoder:
             speed_limit_mps=(speed_limit_kph / 3.6) if speed_limit_kph is not None else None,
             nav_distance_m=None,
             pose=Pose2D(
-                world_x=self._pose_x_m,
-                world_z=self._pose_z_m,
-                yaw_rad=self._last_yaw_rad,
+                world_x=pose_x_m,
+                world_z=pose_z_m,
+                yaw_rad=pose_yaw_rad,
             ),
         )
         self.last_state = SharedMemoryV2State(
@@ -209,6 +250,15 @@ class SharedMemoryV2Decoder:
             speed_limit_kph_candidate=speed_limit_kph,
             route_distance_km_candidate=route_distance_km,
             route_time_min_candidate=route_time_min,
+            pose_source=pose_source,
+            pose_frame=pose_frame,
+            heading_source=heading_source,
+            absolute_heading_rad=absolute_heading_rad,
+            anchor_heading_rad=self._anchor_heading_rad,
+            anchor_heading_locked=self._anchor_heading_rad is not None,
+            absolute_world_x_m=absolute_world_x_m,
+            absolute_world_y_m=absolute_world_y_m,
+            absolute_world_z_m=absolute_world_z_m,
         )
         return frame
 
@@ -256,6 +306,108 @@ class SharedMemoryV2Decoder:
             return None
         return value
 
+    def _read_optional_position(self, raw: bytes, offset: int | None) -> float | None:
+        if offset is None:
+            return None
+        value = self._read_numeric(raw, offset, self.config.absolute_value_format)
+        if value is None:
+            return None
+        if abs(value) > 1.0e9:
+            return None
+        return value
+
+    def _read_numeric(self, raw: bytes, offset: int, value_format: str) -> float | None:
+        try:
+            if value_format == "f64":
+                value = struct.unpack_from("<d", raw, offset)[0]
+            elif value_format == "f32":
+                value = struct.unpack_from("<f", raw, offset)[0]
+            else:
+                raise SharedMemoryV2DecodeError(f"unsupported numeric format: {value_format}")
+        except struct.error as exc:
+            raise SharedMemoryV2DecodeError(f"{value_format} read failed at offset {offset}") from exc
+        if not math.isfinite(value):
+            return None
+        return float(value)
+
+    def _derive_absolute_heading(
+        self,
+        *,
+        absolute_world_x_m: float | None,
+        absolute_world_z_m: float | None,
+    ) -> float | None:
+        if absolute_world_x_m is None or absolute_world_z_m is None:
+            self._heading_reference_x_m = None
+            self._heading_reference_z_m = None
+            return None
+
+        if self._heading_reference_x_m is None or self._heading_reference_z_m is None:
+            self._heading_reference_x_m = absolute_world_x_m
+            self._heading_reference_z_m = absolute_world_z_m
+            return None
+
+        dx = absolute_world_x_m - self._heading_reference_x_m
+        dz = absolute_world_z_m - self._heading_reference_z_m
+        if math.hypot(dx, dz) < self.config.absolute_heading_min_distance_m:
+            return None
+
+        self._heading_reference_x_m = absolute_world_x_m
+        self._heading_reference_z_m = absolute_world_z_m
+        self._last_absolute_heading_rad = math.atan2(dz, dx)
+        return self._last_absolute_heading_rad
+
+    def _select_heading(
+        self,
+        *,
+        absolute_heading_rad: float | None,
+        velocity_heading_rad: float | None,
+        absolute_position_available: bool,
+    ) -> tuple[float, str]:
+        if absolute_heading_rad is not None:
+            return absolute_heading_rad, "absolute_position_delta"
+        if absolute_position_available and self._last_absolute_heading_rad is not None:
+            return self._last_absolute_heading_rad, "absolute_position_hold"
+        if velocity_heading_rad is not None:
+            return velocity_heading_rad, "velocity_direction"
+        return self._last_yaw_rad, "unknown"
+
+    def _select_pose(
+        self,
+        *,
+        absolute_world_x_m: float | None,
+        absolute_world_z_m: float | None,
+        heading_rad: float,
+        heading_source: str,
+    ) -> tuple[float, float, float, str, str]:
+        if absolute_world_x_m is None or absolute_world_z_m is None:
+            return (
+                self._pose_x_m,
+                self._pose_z_m,
+                heading_rad,
+                "integrated_velocity_local",
+                "relative_integrated_velocity",
+            )
+
+        if self.config.pose_frame_mode == "world_absolute":
+            return absolute_world_x_m, absolute_world_z_m, heading_rad, "world_absolute", "authoritative_absolute"
+
+        if self.config.pose_frame_mode == "anchored_local":
+            if self._anchor_absolute_x_m is None or self._anchor_absolute_z_m is None:
+                self._anchor_absolute_x_m = absolute_world_x_m
+                self._anchor_absolute_z_m = absolute_world_z_m
+            if self._anchor_heading_rad is None and heading_source == "absolute_position_delta":
+                self._anchor_heading_rad = heading_rad
+            dx = absolute_world_x_m - self._anchor_absolute_x_m
+            dz = absolute_world_z_m - self._anchor_absolute_z_m
+            anchor_heading_rad = self._anchor_heading_rad if self._anchor_heading_rad is not None else heading_rad
+            local_x, local_z = _rotate_into_local_frame(dx, dz, anchor_heading_rad)
+            if self._anchor_heading_rad is None:
+                return local_x, local_z, 0.0, "anchored_local_pending_heading", "authoritative_absolute"
+            local_yaw_rad = _normalize_angle_rad(heading_rad - self._anchor_heading_rad)
+            return local_x, local_z, local_yaw_rad, "anchored_local", "authoritative_absolute"
+
+        raise SharedMemoryV2DecodeError(f"unsupported pose_frame_mode: {self.config.pose_frame_mode}")
+
     def _infer_paused(
         self,
         *,
@@ -283,6 +435,18 @@ class SharedMemoryV2Decoder:
             self.config.in_world_state_code,
             abs_tol=0.25,
         )
+
+
+def _rotate_into_local_frame(world_dx_m: float, world_dz_m: float, anchor_heading_rad: float) -> tuple[float, float]:
+    cos_yaw = math.cos(anchor_heading_rad)
+    sin_yaw = math.sin(anchor_heading_rad)
+    local_x = world_dx_m * cos_yaw + world_dz_m * sin_yaw
+    local_z = -world_dx_m * sin_yaw + world_dz_m * cos_yaw
+    return local_x, local_z
+
+
+def _normalize_angle_rad(value: float) -> float:
+    return (value + math.pi) % (2.0 * math.pi) - math.pi
 
 
 class _WindowsNamedMappingReader:
@@ -415,6 +579,9 @@ class SharedMemoryV2TelemetrySource:
             self._healthy = False
             self.last_error = str(exc)
             return None
+
+    def read_raw(self) -> bytes:
+        return self.mapping.read()
 
     def close(self) -> None:
         self.mapping.close()

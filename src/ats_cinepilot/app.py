@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import asdict, dataclass
 from typing import Optional
 
@@ -59,6 +60,7 @@ class RuntimeContext:
     telemetry_health: TelemetryFreshnessTracker
     capture_source: any = None
     status_log_interval_frames: int = 25
+    loop_sleep_ms: int = 0
 
 
 class AutopilotApp:
@@ -67,6 +69,7 @@ class AutopilotApp:
         self.mode = mode.lower()
         self.ctx = self._build_runtime(cfg, self.mode)
         self._prev_match: Optional[MatchedEdge] = None
+        self._prev_frame: Optional[TelemetryFrame] = None
         self._step_count = 0
 
     def _build_runtime(self, cfg: dict, mode: str) -> RuntimeContext:
@@ -76,7 +79,15 @@ class AutopilotApp:
         elif telemetry_source_name == "shared_memory_v2":
             telemetry_source = SharedMemoryV2TelemetrySource(
                 SharedMemoryV2Config(
-                    mapping_name=cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats")
+                    mapping_name=cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats"),
+                    absolute_x_offset=cfg_get(cfg, "telemetry.absolute_x_offset"),
+                    absolute_y_offset=cfg_get(cfg, "telemetry.absolute_y_offset"),
+                    absolute_z_offset=cfg_get(cfg, "telemetry.absolute_z_offset"),
+                    absolute_value_format=cfg_get(cfg, "telemetry.absolute_value_format", "f64"),
+                    pose_frame_mode=cfg_get(cfg, "telemetry.pose_frame_mode", "anchored_local"),
+                    absolute_heading_min_distance_m=float(
+                        cfg_get(cfg, "telemetry.absolute_heading_min_distance_m", 0.25)
+                    ),
                 )
             )
         else:
@@ -207,6 +218,7 @@ class AutopilotApp:
             telemetry_health=telemetry_health,
             capture_source=capture_source,
             status_log_interval_frames=max(1, int(cfg_get(cfg, "debug.status_log_interval_frames", 25))),
+            loop_sleep_ms=max(0, int(cfg_get(cfg, "debug.loop_sleep_ms", 0))),
         )
 
     def close(self) -> None:
@@ -273,6 +285,16 @@ class AutopilotApp:
             self.ctx.control_sink.neutralize()
 
         if self.ctx.recorder:
+            telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
+            pose_delta_m = None
+            if self._prev_frame is not None:
+                pose_delta_m = (
+                    (
+                        (frame.pose.world_x - self._prev_frame.pose.world_x) ** 2
+                        + (frame.pose.world_z - self._prev_frame.pose.world_z) ** 2
+                    )
+                    ** 0.5
+                )
             self.ctx.recorder.write({
                 "frame": frame.to_dict(),
                 "matched": asdict(matched) if matched else None,
@@ -286,22 +308,40 @@ class AutopilotApp:
                 },
                 "status": {
                     "telemetry_freshness_ms": freshness_ms,
+                    "pose_source": getattr(telemetry_state, "pose_source", "unknown"),
+                    "pose_frame": getattr(telemetry_state, "pose_frame", "unknown"),
+                    "heading_source": getattr(telemetry_state, "heading_source", "unknown"),
+                    "absolute_heading_rad": getattr(telemetry_state, "absolute_heading_rad", None),
+                    "anchor_heading_rad": getattr(telemetry_state, "anchor_heading_rad", None),
+                    "anchor_heading_locked": getattr(telemetry_state, "anchor_heading_locked", False),
+                    "pose_delta_m": pose_delta_m,
+                    "yaw_rad": frame.pose.yaw_rad,
                     "map_match_confidence": matched.confidence if matched else 0.0,
+                    "cross_track_error_m": matched.cross_track_error_m if matched else None,
+                    "heading_error_rad": matched.heading_error_rad if matched else None,
                     "route_confidence": effective_hint.confidence if effective_hint else 0.0,
                     "selected_branch": path.branch_id if path else None,
                     "speed_target_mps": target.target_mps if target else None,
+                    "safety_decision": getattr(decision.reason, "name", str(decision.reason)),
                 },
             })
 
         self._step_count += 1
+        telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
         if self._step_count % self.ctx.status_log_interval_frames == 0:
             logger.info(
-                "step=%s mode=%s speed=%.2f fresh_ms=%.1f match=%.2f route=%.2f branch=%s target=%s safety=%s",
+                "step=%s mode=%s speed=%.2f fresh_ms=%.1f pose=%s/%s heading_src=%s anchor=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s",
                 self._step_count,
                 self.mode,
                 frame.speed_mps,
                 freshness_ms,
+                getattr(telemetry_state, "pose_source", "unknown"),
+                getattr(telemetry_state, "pose_frame", "unknown"),
+                getattr(telemetry_state, "heading_source", "unknown"),
+                "locked" if getattr(telemetry_state, "anchor_heading_locked", False) else "pending",
                 matched.confidence if matched else 0.0,
+                round(matched.cross_track_error_m, 2) if matched else None,
+                round(matched.heading_error_rad, 3) if matched else None,
                 effective_hint.confidence if effective_hint else 0.0,
                 path.branch_id if path else None,
                 round(target.target_mps, 2) if target else None,
@@ -309,6 +349,7 @@ class AutopilotApp:
             )
 
         self._prev_match = matched
+        self._prev_frame = frame
         return True
 
     def run_loop(self, steps: int | None = None) -> None:
@@ -321,5 +362,7 @@ class AutopilotApp:
                 count += 1
                 if steps is not None and count >= steps:
                     break
+                if self.ctx.loop_sleep_ms > 0:
+                    time.sleep(self.ctx.loop_sleep_ms / 1000.0)
         finally:
             self.close()

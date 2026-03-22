@@ -6,6 +6,7 @@ import time
 
 import requests
 
+from ats_cinepilot.bridge.shared_memory_v2_analysis import rank_axis_candidates
 from ats_cinepilot.bridge.scs_telemetry import _lookup_dotted
 from ats_cinepilot.bridge.scs_telemetry import (
     HttpJsonTelemetrySource,
@@ -30,6 +31,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", action="append", required=True)
     parser.add_argument("--frames", type=int, default=10)
+    parser.add_argument("--scan-pose-candidates", action="store_true")
     args = parser.parse_args()
 
     cfg = resolve_config(args.config)
@@ -43,7 +45,12 @@ def main() -> None:
         print(f"replay path: {replay_path}")
         source = ReplayTelemetrySource(cfg_get(cfg, "logging.replay_path"))
     elif source_name == "shared_memory_v2":
-        _print_shared_memory_diagnostics(cfg, ats_running, frames=max(args.frames, 2))
+        _print_shared_memory_diagnostics(
+            cfg,
+            ats_running,
+            frames=max(args.frames, 2),
+            scan_pose_candidates=args.scan_pose_candidates,
+        )
         return
     else:
         _print_shared_memory_probe(cfg)
@@ -96,7 +103,12 @@ def _print_http_probe(cfg: dict) -> None:
         print(f"http probe: FAILED after {elapsed_ms:.1f}ms ({exc})")
 
 
-def _print_shared_memory_diagnostics(cfg: dict, ats_running: bool, frames: int) -> None:
+def _print_shared_memory_diagnostics(
+    cfg: dict,
+    ats_running: bool,
+    frames: int,
+    scan_pose_candidates: bool,
+) -> None:
     mapping_name = cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats")
     plugin_dll_name = cfg_get(cfg, "telemetry.plugin_dll_name", "atssharedplugin64v2.dll")
     game_dir = find_ats_game_dir()
@@ -120,7 +132,12 @@ def _print_shared_memory_diagnostics(cfg: dict, ats_running: bool, frames: int) 
     decode_error: str | None = None
     tick_advanced: bool | None = None
     if probe.exists:
-        decode_supported, decode_error, tick_advanced = _sample_shared_memory_v2(mapping_name, frames)
+        decode_supported, decode_error, tick_advanced = _sample_shared_memory_v2(
+            mapping_name,
+            frames,
+            scan_pose_candidates=scan_pose_candidates,
+            cfg=cfg,
+        )
 
     category, details = classify_telemetry_probe_status(
         TelemetryProbeStatus(
@@ -142,8 +159,24 @@ def _print_shared_memory_diagnostics(cfg: dict, ats_running: bool, frames: int) 
         print(f"  - {detail}")
 
 
-def _sample_shared_memory_v2(mapping_name: str, frames: int) -> tuple[bool, str | None, bool | None]:
-    source = SharedMemoryV2TelemetrySource(SharedMemoryV2Config(mapping_name=mapping_name))
+def _sample_shared_memory_v2(
+    mapping_name: str,
+    frames: int,
+    *,
+    scan_pose_candidates: bool,
+    cfg: dict,
+) -> tuple[bool, str | None, bool | None]:
+    source = SharedMemoryV2TelemetrySource(
+        SharedMemoryV2Config(
+            mapping_name=mapping_name,
+            absolute_x_offset=cfg_get(cfg, "telemetry.absolute_x_offset"),
+            absolute_y_offset=cfg_get(cfg, "telemetry.absolute_y_offset"),
+            absolute_z_offset=cfg_get(cfg, "telemetry.absolute_z_offset"),
+            absolute_value_format=cfg_get(cfg, "telemetry.absolute_value_format", "f64"),
+            pose_frame_mode=cfg_get(cfg, "telemetry.pose_frame_mode", "anchored_local"),
+            absolute_heading_min_distance_m=float(cfg_get(cfg, "telemetry.absolute_heading_min_distance_m", 0.25)),
+        )
+    )
     try:
         source.connect()
     except SharedMemoryV2AttachError as exc:
@@ -153,12 +186,13 @@ def _sample_shared_memory_v2(mapping_name: str, frames: int) -> tuple[bool, str 
     sampled_frames = []
     try:
         for index in range(frames):
-            frame = source.read()
+            raw = source.read_raw()
+            frame = source.decoder.decode(raw)
             state = source.last_state
             if frame is None or state is None:
                 print(f"decoded frame[{index}]: FAILED ({source.last_error or 'unknown read error'})")
                 return False, source.last_error or "shared_memory_v2 read failed", None
-            sampled_frames.append((frame, state))
+            sampled_frames.append((frame, state, raw))
             print(
                 "decoded frame[{index}]: "
                 "update_token={tick} paused={paused} speed_mps={speed:.3f} "
@@ -182,6 +216,11 @@ def _sample_shared_memory_v2(mapping_name: str, frames: int) -> tuple[bool, str 
                 f"game_tag={state.game_tag!r} state_code={state.state_code:.1f} "
                 f"tick_candidate={state.tick_candidate:.6f} "
                 f"velocity=({state.velocity_x_mps:.3f}, {state.velocity_z_mps:.3f}) "
+                f"pose_source={state.pose_source} pose_frame={state.pose_frame} heading_source={state.heading_source} "
+                f"absolute_heading={_fmt_optional(state.absolute_heading_rad)} "
+                f"anchor_heading={_fmt_optional(state.anchor_heading_rad)} "
+                f"anchor_locked={'yes' if state.anchor_heading_locked else 'no'} "
+                f"absolute_world=({_fmt_optional(state.absolute_world_x_m)}, {_fmt_optional(state.absolute_world_y_m)}, {_fmt_optional(state.absolute_world_z_m)}) "
                 f"speed_limit_kph={_fmt_optional(state.speed_limit_kph_candidate)} "
                 f"route_distance_km={_fmt_optional(state.route_distance_km_candidate)} "
                 f"route_time_min={_fmt_optional(state.route_time_min_candidate)}"
@@ -191,8 +230,29 @@ def _sample_shared_memory_v2(mapping_name: str, frames: int) -> tuple[bool, str 
     finally:
         source.close()
 
-    ticks = [frame.game_tick for frame, _ in sampled_frames]
+    ticks = [frame.game_tick for frame, _, _ in sampled_frames]
     tick_advanced = len(set(ticks)) > 1
+    if scan_pose_candidates:
+        rows = [
+            {
+                "mono_time_s": frame.mono_time_s,
+                "raw": raw,
+                "velocity_x_mps": state.velocity_x_mps,
+                "velocity_z_mps": state.velocity_z_mps,
+            }
+            for frame, state, raw in sampled_frames
+        ]
+        print("pose candidate scan:")
+        for candidate in rank_axis_candidates(rows, axis="x", top_n=5):
+            print(
+                f"  - x offset={candidate.offset} format={candidate.value_format} "
+                f"corr={candidate.correlation:.4f} slope={candidate.slope:.4f} span={candidate.span:.4f}"
+            )
+        for candidate in rank_axis_candidates(rows, axis="z", top_n=5):
+            print(
+                f"  - z offset={candidate.offset} format={candidate.value_format} "
+                f"corr={candidate.correlation:.4f} slope={candidate.slope:.4f} span={candidate.span:.4f}"
+            )
     print(f"decode probe: OK ({len(sampled_frames)} frames, update_token_changed={'yes' if tick_advanced else 'no'})")
     return True, None, tick_advanced
 
