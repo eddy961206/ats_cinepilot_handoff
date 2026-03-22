@@ -1,0 +1,7 @@
+numpy>=1.26
+opencv-python>=4.10
+PyYAML>=6.0
+requests>=2.32
+networkx>=3.3
+shapely>=2.0
+mss>=9.0

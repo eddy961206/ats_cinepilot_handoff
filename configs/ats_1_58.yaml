@@ -1,0 +1,15 @@
+game:
+  profile_name: "ats_1_58"
+
+hud:
+  preset_path: "configs/hud_presets/route_widget_bottom_right.yaml"
+  signature_check: true
+
+planner:
+  branch_arm_distance_m: 130.0
+  junction_speed_cap_mps: 14.0
+
+notes:
+  rationale:
+    - "ATS 1.58 Route Advisor는 widget 기반이라 preset 캘리브레이션이 필요함"
+    - "HUD는 branch hint 보조로만 사용"

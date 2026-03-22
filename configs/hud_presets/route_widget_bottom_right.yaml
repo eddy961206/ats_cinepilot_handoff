@@ -1,0 +1,13 @@
+name: "route_widget_bottom_right"
+normalized_roi: [0.76, 0.63, 0.23, 0.33]     # x, y, w, h in [0,1]
+normalized_signature_roi: [0.75, 0.60, 0.24, 0.36]
+red_hsv_ranges:
+  - [[0, 120, 120], [12, 255, 255]]
+  - [[168, 120, 120], [180, 255, 255]]
+erode_iters: 1
+dilate_iters: 2
+blur_kernel: 3
+min_route_pixels: 120
+player_icon_mask:
+  enabled: false
+  normalized_roi: [0.43, 0.43, 0.14, 0.14]

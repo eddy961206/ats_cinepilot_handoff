@@ -1,0 +1,4 @@
+truck:
+  wheelbase_m: 6.0
+  max_steering_cmd: 1.0
+  preferred_speed_cap_mps: 25.0

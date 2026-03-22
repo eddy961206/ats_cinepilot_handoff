@@ -1,0 +1,81 @@
+game:
+  profile_name: "ats_1_58"
+  mode: "shadow"
+
+telemetry:
+  source: "json_http"   # json_http | replay
+  endpoint: "http://127.0.0.1:25555/api/telemetry"
+  timeout_s: 0.20
+  field_map:
+    game_tick: "common.tick"
+    paused: "common.paused"
+    speed_mps: "truck.speed.value"
+    speed_limit_mps: "navigation.speedLimit.value"
+    nav_distance_m: "navigation.distance.value"
+    pose.world_x: "truck.position.x"
+    pose.world_z: "truck.position.z"
+    pose.yaw_rad: "truck.rotation.y"
+
+control:
+  sink: "module"
+  module_name: "scscontroller"
+  class_name: "SCSController"
+  apply_method: ""     # 빈 문자열이면 attribute set 방식
+  neutral_method: ""
+  field_mapping:
+    steering: "steering"
+    throttle: "aforward"
+    brake: "abackward"
+    left_blinker: "lblinker"
+    right_blinker: "rblinker"
+
+capture:
+  backend: "dxcam"
+  monitor_index: 0
+  region: [0, 0, 1920, 1080]   # left, top, right, bottom
+  target_fps: 12
+
+hud:
+  preset_path: "configs/hud_presets/route_widget_bottom_right.yaml"
+  signature_check: true
+
+map:
+  cache_path: "data/maps/cache/default_graph.json"
+  horizon_m: 180.0
+  query_radius_m: 45.0
+
+planner:
+  branch_arm_distance_m: 130.0
+  max_lateral_accel_mps2: 1.8
+  curve_speed_floor_mps: 8.0
+  junction_speed_cap_mps: 14.0
+
+control_tuning:
+  wheelbase_m: 6.0
+  steering_gain: 1.2
+  max_steering_cmd: 1.0
+  min_lookahead_m: 8.0
+  max_lookahead_m: 28.0
+  lookahead_speed_gain: 1.1
+  kp: 0.45
+  ki: 0.04
+  kd: 0.08
+  brake_bias: 0.12
+  deadband_mps: 0.35
+
+safety:
+  telemetry_timeout_ms: 250
+  min_map_match_confidence: 0.60
+  min_route_confidence: 0.55
+  max_cross_track_error_m: 1.20
+  max_heading_error_deg: 18.0
+  overspeed_curve_margin_kph: 8.0
+  soft_disengage_hold_ms: 800
+
+logging:
+  log_jsonl_path: "data/logs/session.jsonl"
+  replay_path: "data/replays/example_session.jsonl"
+
+debug:
+  overlay: false
+  save_hud_debug: true

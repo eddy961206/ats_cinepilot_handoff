@@ -1,0 +1,9 @@
+system:
+  os: "Windows 11"
+  cpu: "AMD Ryzen 7 7800X3D"
+  gpu: "RTX 4070 Ti SUPER"
+  wheel: "MOZA R3"
+
+notes:
+  - "여기엔 시스템 메모나 해상도 같은 로컬값을 직접 채워 넣으면 됨"
+  - "휠은 v1에서 수동 takeover 장치로 사용 권장"

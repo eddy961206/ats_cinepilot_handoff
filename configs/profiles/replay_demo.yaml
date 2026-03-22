@@ -1,0 +1,20 @@
+extends:
+  - "../default.yaml"
+  - "../ats_1_58.yaml"
+
+telemetry:
+  source: "replay"
+
+control:
+  sink: "noop"
+
+hud:
+  preset_path: ""
+
+logging:
+  replay_path: "data/replays/example_session.jsonl"
+  log_jsonl_path: "data/logs/replay_demo.jsonl"
+
+debug:
+  overlay: false
+  status_log_interval_frames: 1

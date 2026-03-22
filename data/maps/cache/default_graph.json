@@ -1,0 +1,69 @@
+{
+  "nodes": [
+    {
+      "node_id": "a",
+      "x": 0.0,
+      "z": 0.0
+    },
+    {
+      "node_id": "b",
+      "x": 100.0,
+      "z": 0.0
+    },
+    {
+      "node_id": "c",
+      "x": 180.0,
+      "z": 40.0
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "ab",
+      "start_node_id": "a",
+      "end_node_id": "b",
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          50.0,
+          0.0
+        ],
+        [
+          100.0,
+          0.0
+        ]
+      ],
+      "speed_limit_mps": 22.0,
+      "road_class": "highway",
+      "metadata": {}
+    },
+    {
+      "edge_id": "bc",
+      "start_node_id": "b",
+      "end_node_id": "c",
+      "points": [
+        [
+          100.0,
+          0.0
+        ],
+        [
+          130.0,
+          10.0
+        ],
+        [
+          160.0,
+          25.0
+        ],
+        [
+          180.0,
+          40.0
+        ]
+      ],
+      "speed_limit_mps": 18.0,
+      "road_class": "highway",
+      "metadata": {}
+    }
+  ]
+}
