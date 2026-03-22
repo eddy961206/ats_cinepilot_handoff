@@ -1,0 +1,20 @@
+extends:
+  - "default.yaml"
+  - "ats_1_58.yaml"
+
+telemetry:
+  source: "shared_memory_v2"
+  shared_memory_name: "SCSTelemetrySharedv2"
+  plugin_dll_name: "atssharedplugin64v2.dll"
+
+control:
+  sink: "noop"
+
+hud:
+  preset_path: ""
+
+logging:
+  log_jsonl_path: "data/logs/live_probe_moza_shadow.jsonl"
+
+debug:
+  overlay: false

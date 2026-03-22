@@ -6,6 +6,7 @@ import logging
 from ats_cinepilot.app import AutopilotApp
 from ats_cinepilot.ops.config import resolve_config, validate_runtime_config
 from ats_cinepilot.ops.logger import setup_logging
+from ats_cinepilot.ops.startup import build_startup_summary, validate_startup_requirements
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,11 +45,14 @@ def main() -> None:
     if args.command == "run":
         cfg = resolve_config(args.config)
         issues = validate_runtime_config(cfg, mode=args.mode)
+        issues.extend(validate_startup_requirements(cfg, mode=args.mode))
         if issues:
             print("config validation FAILED")
             for issue in issues:
                 print(f"- {issue}")
             raise SystemExit(1)
+        for line in build_startup_summary(cfg, mode=args.mode):
+            print(line)
         app = AutopilotApp(cfg, mode=args.mode)
         app.run_loop(steps=args.steps)
         return
