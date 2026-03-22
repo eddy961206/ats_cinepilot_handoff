@@ -10,3 +10,5 @@ dist/
 data/logs/*.jsonl
 data/replays/*.jsonl
 data/calibrations/*.png
+data/debug/
+data/tools/
