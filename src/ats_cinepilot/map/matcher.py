@@ -23,11 +23,19 @@ class MatcherConfig:
     hysteresis_weight: float = 0.10
 
 
+@dataclass
+class MatchDiagnostics:
+    candidate_count: int = 0
+    nearest_edge_distance_m: float | None = None
+    failure_reason: str | None = None
+
+
 class SimplePoseMatcher:
     def __init__(self, graph: RoadGraph, spatial_index: SimpleSpatialIndex, config: MatcherConfig) -> None:
         self.graph = graph
         self.spatial_index = spatial_index
         self.config = config
+        self.last_diagnostics = MatchDiagnostics()
 
     def match(
         self,
@@ -36,10 +44,16 @@ class SimplePoseMatcher:
     ) -> Optional[MatchedEdge]:
         candidates = self.spatial_index.nearby_edges(frame.pose, self.config.query_radius_m)
         if not candidates:
+            self.last_diagnostics = MatchDiagnostics(
+                candidate_count=0,
+                nearest_edge_distance_m=None,
+                failure_reason="no_nearby_edge",
+            )
             return None
 
         best_score = float("inf")
         best_match: Optional[MatchedEdge] = None
+        nearest_edge_distance_m = candidates[0].distance_m
 
         for candidate in candidates[:12]:
             edge = self.graph.edges[candidate.edge_id]
@@ -62,6 +76,11 @@ class SimplePoseMatcher:
                     heading_error_rad=heading_error_rad,
                     confidence=conf,
                 )
+        self.last_diagnostics = MatchDiagnostics(
+            candidate_count=len(candidates),
+            nearest_edge_distance_m=nearest_edge_distance_m,
+            failure_reason=None if best_match is not None else "no_match_selected",
+        )
         return best_match
 
     def _measure_on_edge(self, frame: TelemetryFrame, edge_id: str) -> tuple[float, float, float]:

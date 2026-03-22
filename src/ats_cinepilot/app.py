@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Optional
 
 from ats_cinepilot.bridge.capture_dxcam import DXcamCaptureSource, DXcamConfig
@@ -61,6 +62,8 @@ class RuntimeContext:
     capture_source: any = None
     status_log_interval_frames: int = 25
     loop_sleep_ms: int = 0
+    graph_source: str = "graph_cache"
+    alignment_mode: str = "unknown"
 
 
 class AutopilotApp:
@@ -222,6 +225,12 @@ class AutopilotApp:
             capture_source=capture_source,
             status_log_interval_frames=max(1, int(cfg_get(cfg, "debug.status_log_interval_frames", 25))),
             loop_sleep_ms=max(0, int(cfg_get(cfg, "debug.loop_sleep_ms", 0))),
+            graph_source=str(
+                graph.metadata.get("graph_source", cfg_get(cfg, "map.source_name", Path(map_cache_path).stem))
+            ),
+            alignment_mode=str(
+                graph.metadata.get("alignment_mode", cfg_get(cfg, "map.alignment_mode", "unknown"))
+            ),
         )
 
     def close(self) -> None:
@@ -310,6 +319,13 @@ class AutopilotApp:
                     "reason": getattr(decision.reason, "name", str(decision.reason)),
                 },
                 "status": {
+                    "graph_source": self.ctx.graph_source,
+                    "alignment_mode": self.ctx.alignment_mode,
+                    "graph_candidate_count": getattr(self.ctx.matcher.last_diagnostics, "candidate_count", 0),
+                    "nearest_edge_distance_m": getattr(
+                        self.ctx.matcher.last_diagnostics, "nearest_edge_distance_m", None
+                    ),
+                    "graph_failure": getattr(self.ctx.matcher.last_diagnostics, "failure_reason", None),
                     "telemetry_freshness_ms": freshness_ms,
                     "pose_source": getattr(telemetry_state, "pose_source", "unknown"),
                     "pose_frame": getattr(telemetry_state, "pose_frame", "unknown"),
@@ -337,11 +353,18 @@ class AutopilotApp:
         telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
         if self._step_count % self.ctx.status_log_interval_frames == 0:
             logger.info(
-                "step=%s mode=%s speed=%.2f fresh_ms=%.1f pose=%s/%s heading_src=%s anchor=%s reset=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s",
+                "step=%s mode=%s speed=%.2f fresh_ms=%.1f graph=%s/%s cand=%s near=%s fail=%s pose=%s/%s heading_src=%s anchor=%s reset=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s",
                 self._step_count,
                 self.mode,
                 frame.speed_mps,
                 freshness_ms,
+                self.ctx.graph_source,
+                self.ctx.alignment_mode,
+                getattr(self.ctx.matcher.last_diagnostics, "candidate_count", 0),
+                round(getattr(self.ctx.matcher.last_diagnostics, "nearest_edge_distance_m", 0.0), 2)
+                if getattr(self.ctx.matcher.last_diagnostics, "nearest_edge_distance_m", None) is not None
+                else None,
+                getattr(self.ctx.matcher.last_diagnostics, "failure_reason", None),
                 getattr(telemetry_state, "pose_source", "unknown"),
                 getattr(telemetry_state, "pose_frame", "unknown"),
                 getattr(telemetry_state, "heading_source", "unknown"),

@@ -29,13 +29,14 @@ def load_graph_cache(path: str | Path) -> RoadGraph:
         )
         for row in payload["edges"]
     }
-    return RoadGraph(nodes=nodes, edges=edges)
+    return RoadGraph(nodes=nodes, edges=edges, metadata=payload.get("metadata", {}))
 
 
-def save_graph_cache(graph: RoadGraph, path: str | Path) -> None:
+def save_graph_cache(graph: RoadGraph, path: str | Path, *, indent: int | None = 2) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "metadata": graph.metadata,
         "nodes": [
             {"node_id": n.node_id, "x": n.x, "z": n.z}
             for n in graph.nodes.values()
@@ -53,7 +54,10 @@ def save_graph_cache(graph: RoadGraph, path: str | Path) -> None:
             for e in graph.edges.values()
         ],
     }
-    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    p.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=indent, separators=None if indent is not None else (",", ":")),
+        encoding="utf-8",
+    )
 
 
 def _opt_float(value):
