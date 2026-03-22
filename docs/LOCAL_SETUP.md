@@ -6,7 +6,7 @@
 .\scripts\setup_venv.ps1
 ```
 
-이번 세션에서 실제로 성공했다.
+이번 세션에서도 실제로 성공했다.
 
 ## 2. 현재 선택된 live telemetry 경로
 
@@ -17,7 +17,7 @@
 - probe config: `configs/live_probe_moza_shared_memory.yaml`
 - 설계 메모: `docs/SHARED_MEMORY_V2_DESIGN.md`
 
-RenCloud `Local\SCSTelemetry` 경로는 여전히 참고용이지만, 이 머신에서 첫 live validation을 통과한 경로는 아니다.
+RenCloud `Local\SCSTelemetry` 경로는 여전히 참고용이지만, 이 머신에서 첫 live validation과 300-step shadow를 통과한 경로는 아니다.
 
 ## 3. 외부 구성요소
 
@@ -52,7 +52,7 @@ live shared memory:
 ## 5. telemetry probe
 
 ```powershell
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_moza_shared_memory.yaml --frames 5
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_moza_shared_memory.yaml --frames 8
 ```
 
 이 스크립트는 이제 아래를 보여준다.
@@ -62,6 +62,8 @@ live shared memory:
 - mapping visibility
 - decode 성공 여부
 - sampled frame별 update token / speed / rpm / gear / throttle / pose
+- `pose_source`, `pose_frame`, `heading_source`
+- `absolute_heading`, `anchor_heading`, `anchor_locked`
 - stale/layout failure 분류
 
 이번 세션의 실제 결과:
@@ -69,21 +71,50 @@ live shared memory:
 - ATS 실행 중
 - `SCSTelemetrySharedv2_ats` visible
 - decode 성공
-- live update token 변화 확인
+- `pose_source=authoritative_absolute`
+- `pose_frame=anchored_local`
+- `anchor_locked=yes`
 - `telemetry status: telemetry ready`
 
-## 6. replay smoke
+## 6. raw capture / offset 분석
+
+capture:
+
+```powershell
+.\.venv\Scripts\python scripts\capture_shared_memory_v2.py --config configs\live_probe_moza_shared_memory.yaml --seconds 6 --hz 10 --delay 3 --label straight_absolute_anchor
+```
+
+analysis:
+
+```powershell
+.\.venv\Scripts\python scripts\analyze_shared_memory_v2_capture.py --input data\captures\shared_memory_v2 --inspect 285:f64 --inspect 293:f64 --inspect 301:f64
+```
+
+현재 채택한 absolute pose 계약:
+- `285:f64` -> `world_x`
+- `293:f64` -> `world_y`
+- `301:f64` -> `world_z`
+
+## 7. replay smoke
 
 ```powershell
 .\.venv\Scripts\ats-cinepilot run --config configs\profiles\replay_demo.yaml --mode shadow --steps 5
 ```
 
-이번 세션에서 실제로 성공했다.
+이번 세션에서도 실제로 성공했다.
 
-## 7. live shadow smoke
+## 8. live shadow smoke / longer run
+
+smoke:
 
 ```powershell
 .\.venv\Scripts\ats-cinepilot run --config configs\live_probe_moza_shared_memory.yaml --mode shadow --steps 30
+```
+
+longer run:
+
+```powershell
+.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_moza_shared_memory.yaml --mode shadow --steps 300
 ```
 
 이번 세션의 실제 결과:
@@ -92,12 +123,15 @@ live shared memory:
 - live telemetry ingest 성공
 - step log 출력 확인
 - recorder 파일 생성 확인: `data/logs/live_probe_moza_shadow.jsonl`
+- 300-step 샘플에서 `safety=NONE` 300/300
+- `match_confidence` 최소값 `1.00`
+- `cross_track_error_m` 최대값 `0.046`
 
 중요:
-- 지금 reader의 pose는 absolute world pose가 아니라 relative pose다.
-- 그래서 이 성공은 **live telemetry 경로 bring-up 성공**이지, full route-following 품질 검증 완료를 뜻하지는 않는다.
+- 지금 성공은 **authoritative absolute pose + anchored-local toy-graph matching bring-up 성공**이다.
+- 아직 실제 ATS global road graph 정렬이 끝났다는 뜻은 아니다.
 
-## 8. controls probe
+## 9. controls probe
 
 ```powershell
 .\.venv\Scripts\python scripts\inspect_controls.py --config configs\default.yaml --dry-run
