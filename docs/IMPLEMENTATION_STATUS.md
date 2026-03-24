@@ -1,26 +1,46 @@
 # Implementation Status
 
-## 2026-03-23 실제 검증 스냅샷
+## 2026-03-24 실제 검증 스냅샷
+
+### 이번 세션 base 상태
+
+- PR #5는 `main`에 merge돼 있었다.
+- PR #6는 `codex/real-ats-world-graph-alignment`에만 merge돼 있었고 `main`에는 아직 없었다.
+- 그래서 이번 작업 베이스는 `main`이 아니라 `origin/codex/real-ats-world-graph-alignment@04bf533`였다.
+- 이번 브랜치는 그 위에 stacked로 올라간다.
 
 ### 이번 세션에서 새로 확인된 것
 
-- 세션 시작 시점 기준 `main`은 PR #4까지였고, PR #5는 아직 open 상태였다.
-- 그래서 이번 작업 베이스는 `main`이 아니라 `codex/real-ats-world-graph-alignment@06d9b67`였다.
-- dense local ATS graph 경로를 하나로 고정했다.
-  - selected toolchain: 로컬 ATS install + `_ext/trucksim_maps_repo`
-  - selected export: `generator map --focusGameCoords --focusRadius --skipCoalescing`
-  - selected adapter: `src/ats_cinepilot/map/adapters/trucksim_maps.py` 의 ATS road GeoJSON 경로
-- dense local export script를 추가/정리했다.
-  - file: `scripts/export_local_dense_graph.py`
-  - contract:
-    - parser output 재사용
-    - focused ATS road GeoJSON 생성
-    - internal graph cache로 변환
-    - 기본값은 forward-only edge
-    - `--synthetic-reverse-edges`는 실험용 옵션으로만 남김
-- replay source가 recorder 로그의 `frame` wrapper도 직접 읽게 했다.
-  - file: `src/ats_cinepilot/bridge/scs_telemetry.py`
-  - 그래서 ATS-backed live log 하나를 graph A/B replay input으로 바로 쓸 수 있다.
+- baseline을 replay로 다시 재현했다.
+  - straight/light-turn dense forward-only는 여전히 `heading≈π` 패턴
+  - turn-heavy dense forward-only는 route confidence가 높아도 `MATCH_LOST`
+- matcher direction diagnostics를 recorder와 summary까지 연결했다.
+  - `selected_reason`
+  - `direction_confidence_state`
+  - top candidate snapshot
+- matcher에 scoped reverse-heading rescue를 추가했다.
+  - trigger:
+    - opposed candidate인데 reverse heading으로는 opposed가 아닐 것
+    - non-opposed 후보가 없거나, 그 후보보다 `map.reverse_heading_min_advantage_m` 만큼 더 가까울 것
+  - current default:
+    - `map.reverse_heading_min_advantage_m = 1.0`
+    - `map.reverse_heading_penalty = 0.5`
+- continuity bonus를 nearest candidate와의 거리 차로 gating했다.
+  - current default:
+    - `map.continuity_distance_slack_m = 1.0`
+- matcher tuning 값을 config로 노출했다.
+  - `map.heading_weight`
+  - `map.distance_weight`
+  - `map.hysteresis_weight`
+  - `map.continuity_distance_slack_m`
+  - `map.reverse_heading_min_advantage_m`
+  - `map.reverse_heading_penalty`
+- 2026-03-24 기준 live probe는 다시 돌렸지만 ATS가 꺼져 있었다.
+  - result: `ATS not running`
+- review에서 지적된 reverse-rescue semantics bug도 막았다.
+  - `MatchedEdge`에 `travel_direction`을 추가
+  - preview planner / branch selector / branch candidate count가 이 방향을 따라가도록 수정
+  - 통합 테스트 `tests/test_preview_planner.py` 추가
 
 ## 현재 텔레메트리 계약
 
@@ -76,7 +96,7 @@ result metadata:
 - local parser / geojson intermediate는 reproducible local artifact라 `.gitignore`로 제외했다.
 - PR에는 runtime cache만 포함한다.
 
-## A/B 비교
+## baseline 재현
 
 ### straight/light-turn
 
@@ -95,6 +115,7 @@ result metadata:
   - `route=[0.447, 0.622]`
   - `cte_max=8.651`
   - `match=[0.617, 0.901]`
+  - `direction_confidence={confident: 1, opposed_best_available: 149}`
 
 ### turn-heavy
 
@@ -112,31 +133,69 @@ result metadata:
   - `route=[0.482, 0.689]`
   - `cte_max=17.318`
   - `match=[0.706, 0.996]`
+  - delayed continuity gap(`winner_distance - min_candidate_distance > 1m`) = `28`
+
+## post-change A/B
+
+### straight/light-turn
+
+- coarse public replay
+  - unchanged
+  - `safety={MATCH_LOST: 150}`
+  - `route=[0.419, 0.480]`
+  - `cte_max=13.910`
+- dense local geojson replay
+  - `safety={MATCH_LOST: 135, NONE: 15}`
+  - `first_MATCH_LOST=1`
+  - `route=[0.622, 0.698]`
+  - `match=[0.872, 0.995]`
+  - `cte_max=8.651`
+  - `direction_confidence={confident: 1, reverse_heading_rescued: 149}`
+
+### turn-heavy
+
+- coarse public replay
+  - unchanged
+  - `safety={MATCH_LOST: 165, ROUTE_CONFIDENCE_LOW: 35}`
+  - `first_ROUTE_CONFIDENCE_LOW=80`
+  - `route=[0.329, 0.499]`
+  - `cte_max=9.680`
+- dense local geojson replay
+  - `safety={MATCH_LOST: 181, NONE: 19}`
+  - `route=[0.482, 0.689]`
+  - `match=[0.706, 0.996]`
+  - `cte_max=17.318`
+  - `direction_confidence={ambiguous: 10, confident: 156, reverse_heading_rescued: 34}`
+  - delayed continuity gap(`winner_distance - min_candidate_distance > 1m`) = `6`
 
 ### 해석
 
-- synthetic reverse edge를 기본값에서 제거하자 straight/light-turn에서 `heading≈π` mismatch가 바로 드러났다.
-- turn-heavy에서는 route confidence가 크게 좋아졌는데도 safety는 여전히 `MATCH_LOST`가 우세했다.
-- 즉 dense local graph는 graph coverage를 넘어서서 direction semantics 문제를 드러내는 단계까지 왔지만, 아직 방향성/heading 평가가 충분히 맞지 않는다.
+- dense straight/light-turn은 pure heading mismatch가 아니라 cte 중심 문제로 이동했다.
+- dense turn-heavy는 headline safety 분포가 그대로라서 아직 “문제가 풀렸다”고 말할 수 없다.
+- 다만 internal diagnostics는 나아졌다.
+  - `reverse_heading_rescued = 34`
+  - delayed continuity gap `28 -> 6`
+- 즉 matcher heading/continuity 보정은 일부 먹혔지만, 남은 병목은 route source가 아니라 dense local graph 자체의 geometry / candidate topology 쪽이다.
 
 ## 현재 가장 큰 병목
 
-현재 dominant bottleneck은 **route source가 아니라 graph-side direction semantics / heading handling**이다.
+현재 dominant bottleneck은 **route source가 아니라 dense local graph geometry / candidate topology fidelity**다.
 
 근거:
-- forward-only dense local geojson 경로에서 straight/light-turn이 `heading≈π` 때문에 바로 무너진다.
-- turn-heavy에서는 route confidence가 높아져도 safety가 주로 `MATCH_LOST`에서 죽는다.
-- reverse edge를 억지로 추가하면 straight는 나아지지만 direction semantics 검증 자체가 오염된다.
-- 그래서 “route intent가 없어서 못 고른다”보다, “현재 graph edge 방향성과 heading 평가가 아직 정확하지 않다”에 더 가깝다.
+- straight dense는 scoped reverse-heading rescue로 분명히 좋아졌다.
+- turn-heavy는 delayed continuity case가 줄었는데도 safety headline은 그대로다.
+- direct yaw uncertainty를 다시 파기 전에, dense local graph가 실제 도로 중심선/방향을 얼마나 잘 보존하는지부터 더 봐야 한다.
+- 그래서 “route intent가 없어서 못 고른다”보다 “현재 graph edge geometry와 candidate set 자체가 아직 부족하다”가 더 맞다.
 
 ## 다음 세션 권고
 
-다음 세션은 **route source가 아니라 graph fidelity / direction semantics**에 집중해야 한다.
+다음 세션은 **route source가 아니라 graph fidelity / graph semantics**에 집중해야 한다.
 
 우선순위:
-1. dense local geojson edge direction semantics 검토
-2. matcher의 heading cost와 edge 방향 선택 로직 재검증
-3. 그다음에도 turn-heavy가 약하면 yaw semantics 후보를 다시 비교
+1. dense local graph에서 problematic candidate edge를 실제 geometry 기준으로 분류
+2. turn-heavy에서 cte가 커지는 구간의 edge topology / crop coverage 확인
+3. 그다음에도 필요하면 matcher continuity/heading cost를 한 번 더 손보기
+4. direct yaw 후보 재검증은 그 다음
 
 route source는 아직 이르다.
 

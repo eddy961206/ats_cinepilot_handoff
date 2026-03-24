@@ -44,6 +44,46 @@ from ats_cinepilot.safety.arbiter import RuleBasedSafetyPolicy, SafetyConfig
 logger = logging.getLogger(__name__)
 
 
+def _score_breakdown_snapshot(score_breakdown: object) -> dict[str, float]:
+    if not isinstance(score_breakdown, dict):
+        return {}
+    snapshot: dict[str, float] = {}
+    for key, value in score_breakdown.items():
+        try:
+            snapshot[str(key)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return snapshot
+
+
+def _top_candidate_snapshot(candidates: object, limit: int = 3) -> list[dict[str, float | str | None]]:
+    if not isinstance(candidates, list):
+        return []
+    snapshot: list[dict[str, float | str | None]] = []
+    for candidate in candidates[:limit]:
+        snapshot.append({
+            "edge_id": getattr(candidate, "edge_id", None),
+            "distance_m": _maybe_float(getattr(candidate, "distance_m", None)),
+            "signed_heading_delta_rad": _maybe_float(getattr(candidate, "signed_heading_delta_rad", None)),
+            "effective_heading_delta_rad": _maybe_float(
+                getattr(candidate, "effective_heading_delta_rad", None)
+            ),
+            "direction_classification": getattr(candidate, "direction_classification", None),
+            "heading_mode": getattr(candidate, "heading_mode", None),
+            "total_score": _maybe_float(getattr(candidate, "total_score", None)),
+        })
+    return snapshot
+
+
+def _maybe_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass
 class RuntimeContext:
     telemetry_source: any
@@ -131,6 +171,14 @@ class AutopilotApp:
             spatial_index=spatial_index,
             config=MatcherConfig(
                 query_radius_m=float(cfg_get(cfg, "map.query_radius_m", 45.0)),
+                heading_weight=float(cfg_get(cfg, "map.heading_weight", 0.35)),
+                distance_weight=float(cfg_get(cfg, "map.distance_weight", 0.55)),
+                hysteresis_weight=float(cfg_get(cfg, "map.hysteresis_weight", 0.10)),
+                continuity_distance_slack_m=float(cfg_get(cfg, "map.continuity_distance_slack_m", 1.0)),
+                reverse_heading_min_advantage_m=float(
+                    cfg_get(cfg, "map.reverse_heading_min_advantage_m", 1.0)
+                ),
+                reverse_heading_penalty=float(cfg_get(cfg, "map.reverse_heading_penalty", 0.5)),
             ),
         )
 
@@ -264,7 +312,12 @@ class AutopilotApp:
         if matched is not None:
             raw_hint = self.ctx.route_provider.get_hint(frame, matched)
             path = self.ctx.preview_planner.build_path(frame, matched, raw_hint)
-            branch_candidate_count = len(self.ctx.preview_planner.graph.outgoing_edges(matched.edge_id))
+            branch_candidate_count = len(
+                self.ctx.preview_planner.graph.continuation_traversals(
+                    matched.edge_id,
+                    matched.travel_direction,
+                )
+            )
             effective_hint = build_effective_route_hint(
                 raw_hint=raw_hint,
                 matched=matched,
@@ -298,6 +351,7 @@ class AutopilotApp:
 
         if self.ctx.recorder:
             telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
+            matcher_diagnostics = self.ctx.matcher.last_diagnostics
             pose_delta_m = None
             if self._prev_frame is not None:
                 pose_delta_m = (
@@ -321,11 +375,21 @@ class AutopilotApp:
                 "status": {
                     "graph_source": self.ctx.graph_source,
                     "alignment_mode": self.ctx.alignment_mode,
-                    "graph_candidate_count": getattr(self.ctx.matcher.last_diagnostics, "candidate_count", 0),
-                    "nearest_edge_distance_m": getattr(
-                        self.ctx.matcher.last_diagnostics, "nearest_edge_distance_m", None
+                    "graph_candidate_count": getattr(matcher_diagnostics, "candidate_count", 0),
+                    "nearest_edge_distance_m": getattr(matcher_diagnostics, "nearest_edge_distance_m", None),
+                    "graph_failure": getattr(matcher_diagnostics, "failure_reason", None),
+                    "selected_edge_id": getattr(matcher_diagnostics, "selected_edge_id", None),
+                    "selected_travel_direction": matched.travel_direction if matched else None,
+                    "selected_reason": getattr(matcher_diagnostics, "selected_reason", None),
+                    "direction_confidence_state": getattr(
+                        matcher_diagnostics, "direction_confidence_state", None
                     ),
-                    "graph_failure": getattr(self.ctx.matcher.last_diagnostics, "failure_reason", None),
+                    "selected_score_breakdown": _score_breakdown_snapshot(
+                        getattr(matcher_diagnostics, "selected_score_breakdown", {})
+                    ),
+                    "top_candidates": _top_candidate_snapshot(
+                        getattr(matcher_diagnostics, "top_candidates", []),
+                    ),
                     "telemetry_freshness_ms": freshness_ms,
                     "pose_source": getattr(telemetry_state, "pose_source", "unknown"),
                     "pose_frame": getattr(telemetry_state, "pose_frame", "unknown"),

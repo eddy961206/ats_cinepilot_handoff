@@ -73,3 +73,106 @@ def test_summarize_shadow_log_collects_graph_and_safety_metrics(tmp_path):
     assert summary["match_confidence_max"] == 1.0
     assert summary["graph_candidate_count_min"] == 16
     assert summary["graph_candidate_count_max"] == 19
+
+
+def test_summarize_shadow_log_collects_direction_counts_and_handles_missing_fields(tmp_path):
+    module = _load_summary_module()
+    log_path = tmp_path / "shadow_direction.jsonl"
+    rows = [
+        {
+            "status": {
+                "graph_source": "trucksim_dense_local_region",
+                "alignment_mode": "ats_absolute_identity",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "world_absolute",
+                "safety_decision": "NONE",
+                "heading_source": "absolute_position_delta",
+                "graph_failure": None,
+                "map_match_confidence": 0.91,
+                "route_confidence": 0.62,
+                "cross_track_error_m": 0.9,
+                "nearest_edge_distance_m": 0.4,
+                "graph_candidate_count": 4,
+                "selected_edge_id": 101,
+                "selected_reason": "heading",
+                "direction_confidence_state": "confident",
+                "selected_score_breakdown": {
+                    "distance_score": 0.91,
+                    "heading_score": 0.85,
+                    "continuity_bonus": 0.10,
+                },
+                "top_candidates": [
+                    {
+                        "edge_id": 101,
+                        "distance_m": 0.4,
+                        "signed_heading_delta_rad": 0.12,
+                        "direction_classification": "aligned",
+                        "total_score": 0.93,
+                    },
+                    {
+                        "edge_id": 202,
+                        "distance_m": 0.7,
+                        "signed_heading_delta_rad": 2.9,
+                        "direction_classification": "opposed",
+                        "total_score": 0.35,
+                    },
+                ],
+            }
+        },
+        {
+            "status": {
+                "graph_source": "trucksim_dense_local_region",
+                "alignment_mode": "ats_absolute_identity",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "world_absolute",
+                "safety_decision": "MATCH_LOST",
+                "heading_source": "absolute_position_hold",
+                "graph_failure": "direction_ambiguous",
+                "map_match_confidence": 0.64,
+                "route_confidence": 0.55,
+                "cross_track_error_m": 2.1,
+                "nearest_edge_distance_m": 1.8,
+                "graph_candidate_count": 3,
+                "selected_edge_id": 303,
+                "selected_reason": "continuity",
+                "direction_confidence_state": "ambiguous",
+                "selected_score_breakdown": {
+                    "distance_score": 0.72,
+                    "heading_score": 0.41,
+                    "continuity_bonus": 0.30,
+                },
+            }
+        },
+        {
+            "status": {
+                "graph_source": "trucksim_dense_local_region",
+                "alignment_mode": "ats_absolute_identity",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "world_absolute",
+                "safety_decision": "NONE",
+                "heading_source": "absolute_position_hold",
+                "graph_failure": None,
+                "map_match_confidence": 0.88,
+                "route_confidence": 0.58,
+                "cross_track_error_m": 1.1,
+                "nearest_edge_distance_m": 0.6,
+                "graph_candidate_count": 2,
+            }
+        },
+    ]
+    log_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    summary = module.summarize_log(log_path)
+
+    assert summary["steps"] == 3
+    assert summary["selected_reason_counts"] == {
+        "heading": 1,
+        "continuity": 1,
+    }
+    assert summary["direction_confidence_state_counts"] == {
+        "confident": 1,
+        "ambiguous": 1,
+    }

@@ -24,22 +24,30 @@ class BranchSelector:
         self.graph = graph
         self.config = config
 
-    def choose(self, current_edge_id: str, current_heading: float, hint: RouteHint) -> str | None:
-        outgoing = self.graph.outgoing_edges(current_edge_id)
-        if not outgoing:
+    def choose(
+        self,
+        current_edge_id: str,
+        current_heading: float,
+        hint: RouteHint,
+        current_travel_direction: str = "forward",
+    ) -> str | None:
+        continuations = self.graph.continuation_traversals(current_edge_id, current_travel_direction)
+        if not continuations:
             return None
-        if len(outgoing) == 1:
-            return outgoing[0].edge_id
+        if len(continuations) == 1:
+            return continuations[0].edge_id
 
         best_id: str | None = None
         best_score = -1e9
         current_edge = self.graph.edges[current_edge_id]
+        current_exit_heading = self.graph.edge_heading_end(current_edge_id, current_travel_direction)
 
-        for edge in outgoing:
-            cand_heading = self.graph.edge_heading_start(edge.edge_id)
+        for traversal in continuations:
+            edge = self.graph.edges[traversal.edge_id]
+            cand_heading = self.graph.edge_heading_start(traversal.edge_id, traversal.travel_direction)
             cand_bias = _normalize_bias_from_heading(current_heading, cand_heading)
             route_bias_score = 1.0 - abs(cand_bias - hint.turn_bias)
-            heading_score = 1.0 - min(1.0, abs(cand_heading - self.graph.edge_heading_end(current_edge_id)) / math.pi)
+            heading_score = 1.0 - min(1.0, abs(cand_heading - current_exit_heading) / math.pi)
             continuity_score = 1.0 if edge.road_class == current_edge.road_class else 0.5
             score = (
                 self.config.route_bias_weight * route_bias_score
@@ -48,5 +56,5 @@ class BranchSelector:
             )
             if score > best_score:
                 best_score = score
-                best_id = edge.edge_id
+                best_id = traversal.edge_id
         return best_id

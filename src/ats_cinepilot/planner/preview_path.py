@@ -46,17 +46,18 @@ class PreviewPlanner:
             matched.edge_id,
             current_heading=frame.pose.yaw_rad,
             hint=hint,
+            current_travel_direction=matched.travel_direction,
         )
 
         sampled: list[tuple[float, float]] = []
         distance_left = horizon
         edge_id = matched.edge_id
+        travel_direction = matched.travel_direction
         first_edge = True
         current_progress = matched.progress_m
 
         while distance_left > 0 and edge_id:
-            edge = self.graph.edges[edge_id]
-            pts = edge.points
+            pts = self.graph.edge_points(edge_id, travel_direction)
             sampled_on_edge, consumed = self._slice_edge_points(pts, current_progress if first_edge else 0.0, distance_left)
             if sampled_on_edge:
                 if sampled and sampled_on_edge[0] == sampled[-1]:
@@ -67,14 +68,19 @@ class PreviewPlanner:
             first_edge = False
             current_progress = 0.0
 
-            outgoing = self.graph.outgoing_edges(edge_id)
-            if not outgoing:
+            continuations = self.graph.continuation_traversals(edge_id, travel_direction)
+            if not continuations:
                 break
-            if selected_branch and any(e.edge_id == selected_branch for e in outgoing):
-                edge_id = selected_branch
-                selected_branch = None
-            else:
-                edge_id = outgoing[0].edge_id
+            if selected_branch:
+                selected = next((t for t in continuations if t.edge_id == selected_branch), None)
+                if selected is not None:
+                    edge_id = selected.edge_id
+                    travel_direction = selected.travel_direction
+                    selected_branch = None
+                    continue
+            next_traversal = continuations[0]
+            edge_id = next_traversal.edge_id
+            travel_direction = next_traversal.travel_direction
 
         points: list[PreviewPoint] = []
         for i, point in enumerate(sampled):

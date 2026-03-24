@@ -55,6 +55,16 @@ authoritative direct yaw offset은 아직 채택하지 않았다.
 2. `absolute_position_hold`
 3. 없으면 `velocity_direction`
 
+graph matcher 쪽 현재 보정:
+- `map.continuity_distance_slack_m = 1.0`
+- `map.reverse_heading_min_advantage_m = 1.0`
+- `map.reverse_heading_penalty = 0.5`
+
+의미:
+- pure telemetry heading contract는 그대로 둔다.
+- 대신 dense local graph가 forward-only라서 geometry는 가깝지만 edge 방향이 반대로 들어온 후보가 있으면, 그 후보를 scoped reverse-heading rescue로 다시 평가한다.
+- continuity bonus도 nearest candidate보다 충분히 멀어지면 끊어서 stale edge에 과하게 매달리지 않게 한다.
+
 ## discontinuity / reset 전략
 
 absolute world position jump가 충분히 크면 stale anchor를 유지하지 않는다.
@@ -129,10 +139,11 @@ result:
 - dense local geojson replay
   - same ATS-backed input
   - `steps=150`
-  - `safety={MATCH_LOST: 150}`
-  - `route=[0.447, 0.622]`
+  - `safety={MATCH_LOST: 135, NONE: 15}`
+  - `route=[0.622, 0.698]`
   - `cte_max=8.651`
-  - `match=[0.617, 0.901]`
+  - `match=[0.872, 0.995]`
+  - `direction_confidence={confident: 1, reverse_heading_rescued: 149}`
 
 ### turn-heavy
 
@@ -149,11 +160,14 @@ result:
   - `route=[0.482, 0.689]`
   - `cte_max=17.318`
   - `match=[0.706, 0.996]`
+  - `direction_confidence={ambiguous: 10, confident: 156, reverse_heading_rescued: 34}`
+  - delayed continuity gap(`winner_distance - min_candidate_distance > 1m`) = `6`
 
 ## 현재 결론
 
 - `SCSTelemetrySharedv2_ats` direct reader는 실제로 동작한다.
 - `285/293/301` absolute pose 계약은 유지한다.
 - dense local geojson graph는 forward-only 계약에서 direction semantics bottleneck을 더 분명하게 드러냈다.
-- straight/light-turn에서는 `heading≈π` mismatch가 남아 있고, turn-heavy에선 route confidence가 높아져도 `MATCH_LOST`가 많다.
-- 그래서 다음 dominant bottleneck은 route source가 아니라 **graph-side direction semantics / heading handling**이다.
+- scoped reverse-heading rescue 이후 straight/light-turn은 pure heading mismatch가 많이 줄었다.
+- turn-heavy에선 internal candidate-selection diagnostics는 좋아졌지만 headline safety는 그대로다.
+- 그래서 다음 dominant bottleneck은 route source나 direct yaw uncertainty가 아니라 **dense local graph geometry / candidate topology fidelity**다.
