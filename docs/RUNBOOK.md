@@ -127,6 +127,7 @@ matcher 진단에서 꼭 볼 것:
 - `selected_reason_counts`
 - `direction_confidence_state_counts`
 - `reverse_heading_rescued` 발생 수
+- reverse rescue가 생긴 프레임에 `selected_travel_direction=reverse`가 일관되게 찍히는지
 - delayed continuity gap
   - 정의: `winner_distance - min_candidate_distance > 1m`
 

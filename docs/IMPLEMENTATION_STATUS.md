@@ -37,6 +37,10 @@
   - `map.reverse_heading_penalty`
 - 2026-03-24 기준 live probe는 다시 돌렸지만 ATS가 꺼져 있었다.
   - result: `ATS not running`
+- review에서 지적된 reverse-rescue semantics bug도 막았다.
+  - `MatchedEdge`에 `travel_direction`을 추가
+  - preview planner / branch selector / branch candidate count가 이 방향을 따라가도록 수정
+  - 통합 테스트 `tests/test_preview_planner.py` 추가
 
 ## 현재 텔레메트리 계약
 
