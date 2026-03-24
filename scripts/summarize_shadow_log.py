@@ -33,6 +33,7 @@ def summarize_log(path: Path) -> dict:
     near_values: list[float] = []
     candidate_values: list[int] = []
     first_match_lost_step: int | None = None
+    first_route_confidence_low_step: int | None = None
     last_status: dict = {}
     total_steps = 0
 
@@ -50,6 +51,8 @@ def summarize_log(path: Path) -> dict:
             graph_failure_counts[str(status.get("graph_failure", "None"))] += 1
             if safety == "MATCH_LOST" and first_match_lost_step is None:
                 first_match_lost_step = index
+            if safety == "ROUTE_CONFIDENCE_LOW" and first_route_confidence_low_step is None:
+                first_route_confidence_low_step = index
 
             _append_numeric(match_values, status.get("map_match_confidence"))
             _append_numeric(route_values, status.get("route_confidence"))
@@ -69,6 +72,7 @@ def summarize_log(path: Path) -> dict:
         "heading_source_counts": dict(heading_counts),
         "graph_failure_counts": dict(graph_failure_counts),
         "first_match_lost_step": first_match_lost_step,
+        "first_route_confidence_low_step": first_route_confidence_low_step,
         "match_confidence_min": min(match_values) if match_values else None,
         "match_confidence_max": max(match_values) if match_values else None,
         "route_confidence_min": min(route_values) if route_values else None,
@@ -93,11 +97,12 @@ def print_summary(summary: dict) -> None:
         )
     )
     print(
-        "  safety={safety} first_MATCH_LOST={first_match_lost} "
+        "  safety={safety} first_MATCH_LOST={first_match_lost} first_ROUTE_CONFIDENCE_LOW={first_route_low} "
         "match=[{match_min}, {match_max}] route=[{route_min}, {route_max}] "
         "cte_max={cte_max} near=[{near_min}, {near_max}] cand=[{cand_min}, {cand_max}]".format(
             safety=summary["safety_counts"],
             first_match_lost=summary["first_match_lost_step"],
+            first_route_low=summary["first_route_confidence_low_step"],
             match_min=_fmt(summary["match_confidence_min"]),
             match_max=_fmt(summary["match_confidence_max"]),
             route_min=_fmt(summary["route_confidence_min"]),
