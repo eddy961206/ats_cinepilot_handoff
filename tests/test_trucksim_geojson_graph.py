@@ -65,7 +65,8 @@ def test_load_trucksim_graph_supports_ats_geojson_roads_with_connectivity(tmp_pa
     assert graph.metadata["source_format"] == "trucksim_ats_geojson_roads"
     assert graph.metadata["source_feature_count"] == 3
     assert graph.metadata["road_feature_count"] == 2
-    assert graph.metadata["synthetic_reverse_edge_count"] == 2
+    assert graph.metadata["synthetic_reverse_edges_enabled"] is False
+    assert graph.metadata["synthetic_reverse_edge_count"] == 0
     assert graph.metadata["skipped_feature_count"] == 1
     assert set(graph.nodes) == {"1a", "2b", "3c"}
     assert graph.nodes["1a"].x == pytest.approx(-100.0, abs=1e-3)
@@ -75,14 +76,47 @@ def test_load_trucksim_graph_supports_ats_geojson_roads_with_connectivity(tmp_pa
     assert graph.edges["road_a__fwd"].start_node_id == "1a"
     assert graph.edges["road_a__fwd"].end_node_id == "2b"
     assert graph.edges["road_a__fwd"].road_class == "local"
-    assert graph.edges["road_a__rev"].start_node_id == "2b"
-    assert graph.edges["road_a__rev"].end_node_id == "1a"
-    assert graph.edges["road_a__rev"].metadata["synthetic_reverse"] is True
     assert graph.edges["road_b__fwd"].road_class == "freeway"
     assert graph.edges["road_b__fwd"].points[-1][0] == pytest.approx(80.0, abs=1e-3)
     assert graph.edges["road_b__fwd"].points[-1][1] == pytest.approx(120.0, abs=1e-3)
-    assert graph.edges["road_b__rev"].points[0][0] == pytest.approx(80.0, abs=1e-3)
-    assert graph.edges["road_b__rev"].points[0][1] == pytest.approx(120.0, abs=1e-3)
+    assert set(graph.edges) == {"road_a__fwd", "road_b__fwd"}
+
+
+def test_load_trucksim_graph_can_optionally_add_synthetic_reverse_edges(tmp_path):
+    a_lon, a_lat = ats_coords_to_wgs84(-40.0, 10.0)
+    b_lon, b_lat = ats_coords_to_wgs84(40.0, 10.0)
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "id": "road_a",
+                "properties": {
+                    "type": "road",
+                    "roadType": "local",
+                    "startNodeUid": "1a",
+                    "endNodeUid": "2b",
+                },
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                        [a_lon, a_lat],
+                        [b_lon, b_lat],
+                    ],
+                },
+            }
+        ],
+    }
+    path = tmp_path / "ats.geojson"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    graph = load_trucksim_graph(path, add_synthetic_reverse_edges=True)
+
+    assert graph.metadata["synthetic_reverse_edges_enabled"] is True
+    assert graph.metadata["synthetic_reverse_edge_count"] == 1
+    assert graph.edges["road_a__rev"].start_node_id == "2b"
+    assert graph.edges["road_a__rev"].end_node_id == "1a"
+    assert graph.edges["road_a__rev"].metadata["synthetic_reverse"] is True
 
 
 def test_load_trucksim_graph_rejects_ats_geojson_without_connectable_roads(tmp_path):

@@ -10,7 +10,7 @@ from ats_cinepilot.map.projections import wgs84_to_ats_coords
 from ats_cinepilot.map.spatial_index import point_segment_distance
 
 
-def load_trucksim_graph(path: str | Path) -> RoadGraph:
+def load_trucksim_graph(path: str | Path, *, add_synthetic_reverse_edges: bool = False) -> RoadGraph:
     """
     truckermudgeon/maps exporter JSON을 internal graph로 변환하는 시작점.
 
@@ -27,7 +27,10 @@ def load_trucksim_graph(path: str | Path) -> RoadGraph:
 
     if "features" in payload:
         if _looks_like_ats_geojson_roads(payload):
-            return _from_ats_geojson_roads(payload)
+            return _from_ats_geojson_roads(
+                payload,
+                add_synthetic_reverse_edges=add_synthetic_reverse_edges,
+            )
         return _from_geojson_like(payload)
 
     raise ValueError(
@@ -117,7 +120,11 @@ def _looks_like_ats_geojson_roads(payload: dict) -> bool:
     )
 
 
-def _from_ats_geojson_roads(payload: dict) -> RoadGraph:
+def _from_ats_geojson_roads(
+    payload: dict,
+    *,
+    add_synthetic_reverse_edges: bool,
+) -> RoadGraph:
     nodes: dict[str, Node] = {}
     edges: dict[str, Edge] = {}
     road_feature_count = 0
@@ -166,16 +173,17 @@ def _from_ats_geojson_roads(payload: dict) -> RoadGraph:
             road_class=road_class,
             metadata={**props, "synthetic_reverse": False},
         )
-        edges[f"{edge_id}__rev"] = Edge(
-            edge_id=f"{edge_id}__rev",
-            start_node_id=end_node_id,
-            end_node_id=start_node_id,
-            points=list(reversed(normalized_points)),
-            road_class=road_class,
-            metadata={**props, "synthetic_reverse": True},
-        )
         road_feature_count += 1
-        synthetic_reverse_edge_count += 1
+        if add_synthetic_reverse_edges:
+            edges[f"{edge_id}__rev"] = Edge(
+                edge_id=f"{edge_id}__rev",
+                start_node_id=end_node_id,
+                end_node_id=start_node_id,
+                points=list(reversed(normalized_points)),
+                road_class=road_class,
+                metadata={**props, "synthetic_reverse": True},
+            )
+            synthetic_reverse_edge_count += 1
 
     if not edges:
         raise ValueError("trucksim ATS GeoJSON road export does not contain usable road edges")
@@ -187,6 +195,7 @@ def _from_ats_geojson_roads(payload: dict) -> RoadGraph:
             "source_format": "trucksim_ats_geojson_roads",
             "source_feature_count": len(payload.get("features", [])),
             "road_feature_count": road_feature_count,
+            "synthetic_reverse_edges_enabled": add_synthetic_reverse_edges,
             "synthetic_reverse_edge_count": synthetic_reverse_edge_count,
             "skipped_feature_count": skipped_feature_count,
         },

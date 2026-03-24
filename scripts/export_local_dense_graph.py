@@ -23,6 +23,10 @@ REQUIRED_PARSER_FILES = (
     "usa-prefabDescriptions.json",
     "usa-roadLooks.json",
 )
+DEFAULT_PARSER_OUTPUT_DIR = "data/maps/trucksim_parser/ats_local"
+DEFAULT_GEOJSON_OUTPUT_DIR = "data/maps/trucksim_geojson/ats_local_region"
+DEFAULT_OUTPUT_CACHE = "data/maps/cache/ats_usa_region_dense_local_geojson_8km.json"
+DEFAULT_RADIUS_M = 8000.0
 
 
 def main() -> None:
@@ -30,10 +34,15 @@ def main() -> None:
     parser.add_argument("--config", action="append", required=True, help="Config path(s) used to read the live crop center.")
     parser.add_argument("--game-dir", default="", help="ATS installation dir containing .scs files.")
     parser.add_argument("--toolchain-dir", default="", help="Path to local trucksim_maps_repo checkout.")
-    parser.add_argument("--parser-output-dir", default="data/tools/trucksim_parser/ats_local")
-    parser.add_argument("--geojson-output-dir", default="data/tools/trucksim_geojson/ats_local_region")
-    parser.add_argument("--output-cache", default="data/tools/maps/cache/ats_usa_region_dense_local_8km.json")
-    parser.add_argument("--radius-m", type=float, default=8000.0)
+    parser.add_argument("--parser-output-dir", default=DEFAULT_PARSER_OUTPUT_DIR)
+    parser.add_argument("--geojson-output-dir", default=DEFAULT_GEOJSON_OUTPUT_DIR)
+    parser.add_argument("--output-cache", default=DEFAULT_OUTPUT_CACHE)
+    parser.add_argument("--radius-m", type=float, default=DEFAULT_RADIUS_M)
+    parser.add_argument(
+        "--synthetic-reverse-edges",
+        action="store_true",
+        help="Add reverse edges for each ATS road feature. Keep disabled for primary direction-semantics validation.",
+    )
     parser.add_argument("--force-parse", action="store_true")
     args = parser.parse_args()
 
@@ -89,7 +98,7 @@ def main() -> None:
     if not geojson_path.exists():
         raise FileNotFoundError(f"generator did not create {geojson_path}")
 
-    graph = load_trucksim_graph(geojson_path)
+    graph = load_trucksim_graph(geojson_path, add_synthetic_reverse_edges=args.synthetic_reverse_edges)
     graph = crop_graph_to_radius(
         graph,
         center_x_m=float(center_x_m),
@@ -105,6 +114,7 @@ def main() -> None:
             "focus_center_x_m": float(center_x_m),
             "focus_center_z_m": float(center_z_m),
             "focus_radius_m": float(args.radius_m),
+            "synthetic_reverse_edges": bool(args.synthetic_reverse_edges),
             "source_game_dir": str(game_dir),
             "source_parser_dir": str(parser_output_dir),
             "source_input": str(geojson_path),
