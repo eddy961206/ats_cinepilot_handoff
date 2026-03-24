@@ -21,7 +21,7 @@
 - matcher diagnostics 확인
 
 ### 2단계
-- graph fidelity 개선
+- dense local graph geometry / candidate topology 개선
 - turn-heavy 재검증
 - 그래도 bottleneck이 남을 때만 route source
 
@@ -114,7 +114,7 @@ coarse vs dense replay:
 요약:
 
 ```powershell
-.\.venv\Scripts\python scripts\summarize_shadow_log.py --input data\logs\ab_straight_toy.jsonl --input data\logs\replay_ab_straight_real_graph.jsonl --input data\logs\replay_ab_straight_dense_local_geojson_graph.jsonl --input data\logs\ab_turn_toy.jsonl --input data\logs\replay_ab_turn_real_graph.jsonl --input data\logs\replay_ab_turn_dense_local_geojson_graph.jsonl --json data\debug\dense_local_geojson_ab_summary.json
+.\.venv\Scripts\python scripts\summarize_shadow_log.py --input data\logs\replay_ab_straight_real_postchange_20260324.jsonl --input data\logs\replay_ab_straight_dense_postchange_20260324.jsonl --input data\logs\replay_ab_turn_real_postchange_20260324.jsonl --input data\logs\replay_ab_turn_dense_postchange_20260324.jsonl --json data\debug\dense_direction_postchange_summary.json
 ```
 
 주의:
@@ -123,12 +123,21 @@ coarse vs dense replay:
 - 그래서 toy를 coarse/dense와 **같은 replay 입력**으로 완전히 공정 비교할 수는 없다
 - toy는 ATS-backed baseline, coarse/dense는 same-input replay로 비교한다
 
+matcher 진단에서 꼭 볼 것:
+- `selected_reason_counts`
+- `direction_confidence_state_counts`
+- `reverse_heading_rescued` 발생 수
+- delayed continuity gap
+  - 정의: `winner_distance - min_candidate_distance > 1m`
+
 ## 현재 해석
 
 - toy graph 대비 real-graph family는 coverage가 훨씬 낫다
-- dense local graph forward-only path는 straight/light-turn에서 `heading≈π` mismatch를 드러낸다
-- turn-heavy에서는 route confidence가 높아져도 `MATCH_LOST`가 남는다
-- 그래서 다음 세션은 route source보다 graph fidelity가 우선이다
+- dense local graph forward-only path는 direction 문제가 있는 구간을 솔직하게 드러낸다
+- scoped reverse-heading rescue 이후 straight/light-turn dense replay는 `MATCH_LOST 150 -> 135`, `NONE 0 -> 15`로 좋아졌다
+- turn-heavy dense replay는 headline safety가 그대로라서 아직 graph fidelity 쪽 병목이 남아 있다
+- delayed continuity gap은 `28 -> 6`으로 줄었다
+- 그래서 다음 세션은 route source보다 dense local graph geometry / candidate topology가 우선이다
 
 ## live shadow run
 
@@ -141,10 +150,11 @@ coarse vs dense replay:
 - `fresh_ms`가 stale로 치솟지 않는다
 - `graph_failures=None` 유지
 - `nearest_edge_distance_m`가 합리적인 범위에 머문다
+- `selected_reason` / `direction_confidence_state`가 비정상적으로 한 패턴에만 고착되지 않는다
 
 ## 다음 액션 판단
 
-- dense local graph가 coarse보다 확실히 좋아지면:
-  - 그때 route source를 검토
-- dense local graph가 direction semantics 때문에 무너지면:
-  - route source로 가지 말고 edge direction / heading cost / candidate selection부터 다시 파기
+- dense local graph가 straight만 좋아지고 turn-heavy는 그대로면:
+  - route source로 가지 말고 dense local graph geometry / candidate topology부터 다시 파기
+- dense local graph geometry를 더 다듬은 뒤에도 turn-heavy가 남으면:
+  - 그때 matcher continuity/heading cost나 yaw 후보를 다시 검토

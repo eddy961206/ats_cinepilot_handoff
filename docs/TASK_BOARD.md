@@ -2,32 +2,32 @@
 
 ## Done This Session
 
-- [x] PR #5가 아직 merge되지 않은 상태임을 확인하고 `codex/real-ats-world-graph-alignment@06d9b67` 위에서 작업 시작
-- [x] dense regional graph 설계/spec/plan 추가
-- [x] local ATS install + `_ext/trucksim_maps_repo` 기반 dense graph toolchain 하나로 고정
-- [x] ATS road GeoJSON adapter 경로 선택
-- [x] `scripts/export_local_dense_graph.py` 정리
-- [x] `configs/live_probe_ats_dense_local_graph.yaml`를 runtime path로 고정
-- [x] dense local geojson cache export 성공
-- [x] replay source가 recorder `frame` wrapper를 직접 읽도록 확장
-- [x] coarse vs dense local replay A/B 수행
-- [x] synthetic reverse edge를 default에서 제거하고 실험용 옵션으로 격리
-- [x] 다음 dominant bottleneck을 `route source`가 아니라 `graph-side direction semantics / heading handling`으로 명시
+- [x] PR #5는 `main`에 merge됐고 PR #6는 `codex/real-ats-world-graph-alignment`에만 merge된 상태임을 확인
+- [x] 이번 브랜치를 `origin/codex/real-ats-world-graph-alignment@04bf533` 위에서 시작
+- [x] dense forward-only baseline을 replay로 다시 재현
+- [x] matcher candidate direction diagnostics 추가
+- [x] recorder / shadow summary에 `selected_reason`, `direction_confidence_state`, top candidate snapshot 연결
+- [x] scoped reverse-heading rescue 추가
+- [x] continuity bonus distance gating 추가
+- [x] matcher tuning 값을 config(`map.*`)로 노출
+- [x] coarse vs dense fresh post-change replay A/B 수행
+- [x] live shared_memory_v2 probe 재실행
+- [x] 이번 세션 dominant bottleneck을 `route source`가 아니라 `dense local graph geometry / candidate topology fidelity`로 명시
 
 ## P0 Next
 
-- [ ] dense local geojson edge direction semantics를 다시 검증
-- [ ] raw road feature 방향이 실제 주행 방향과 어긋나는 구간을 분류
-- [ ] matcher heading cost와 candidate selection이 straight/light-turn에서 왜 `heading≈π`로 붙는지 분해
-- [ ] turn-heavy에서 route confidence는 높은데 `MATCH_LOST`가 나는 이유를 분해
-- [ ] 같은 지역에서 direction/heading 수정판으로 A/B 재실행
+- [ ] turn-heavy에서 cte가 커지는 edge ID 구간을 추출하고 실제 GeoJSON geometry와 대조
+- [ ] dense local crop radius / region 선택이 problematic segment를 잘 포함하는지 검증
+- [ ] candidate topology가 잘못된 구간인지, edge geometry가 어긋난 구간인지 분류
+- [ ] 필요하면 dense local export를 더 좁고 더 정확한 corridor 기준으로 다시 생성
+- [ ] 그 다음에만 matcher continuity/heading cost를 한 번 더 조정
 
 ## P1
 
-- [ ] `309:f32` direct yaw 후보를 dense local geojson graph 위에서 다시 비교
+- [ ] `309:f32` direct yaw 후보를 dense local graph geometry 점검 이후 다시 비교
 - [ ] paused / world-state authoritative field 식별
 - [ ] authoritative game tick 후보 식별
-- [ ] replay A/B를 표 형태로 내는 helper script 추가
+- [ ] replay A/B + direction diagnostics를 표/CSV로 내는 helper script 추가
 
 ## Not Yet
 
