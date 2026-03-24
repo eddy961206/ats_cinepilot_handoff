@@ -114,6 +114,7 @@ class SimplePoseMatcher:
                 measured,
                 best_forward_non_opposed_distance,
             )
+            travel_direction = "reverse" if use_reverse_heading else "forward"
             heading_error_rad = (
                 measured.reverse_heading_error_rad
                 if use_reverse_heading
@@ -129,7 +130,7 @@ class SimplePoseMatcher:
             hysteresis_score = 0.0
             reverse_heading_penalty = self.config.reverse_heading_penalty if use_reverse_heading else 0.0
             score = distance_score + heading_score + reverse_heading_penalty
-            if previous and previous.edge_id == measured.edge_id and self._should_apply_hysteresis(
+            if previous and previous.edge_id == measured.edge_id and previous.travel_direction == travel_direction and self._should_apply_hysteresis(
                 measured,
                 nearest_candidate_distance_m,
             ):
@@ -159,13 +160,20 @@ class SimplePoseMatcher:
                 conf = max(0.0, min(1.0, 1.0 - score / max(self.config.query_radius_m, 1.0)))
                 best_score = score
                 best_candidate = candidate_diag
+                effective_progress_m = measured.progress_m
+                if use_reverse_heading:
+                    effective_progress_m = max(
+                        0.0,
+                        self.graph.edges[measured.edge_id].length_m - measured.progress_m,
+                    )
                 best_match = MatchedEdge(
                     edge_id=measured.edge_id,
                     lane_id=None,
-                    progress_m=measured.progress_m,
+                    progress_m=effective_progress_m,
                     cross_track_error_m=measured.cross_track_error_m,
                     heading_error_rad=heading_error_rad,
                     confidence=conf,
+                    travel_direction=travel_direction,
                 )
         sorted_diagnostics = [
             diagnostic for _, diagnostic in sorted(candidate_diagnostics, key=lambda item: item[0])

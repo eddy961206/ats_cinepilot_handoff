@@ -312,7 +312,12 @@ class AutopilotApp:
         if matched is not None:
             raw_hint = self.ctx.route_provider.get_hint(frame, matched)
             path = self.ctx.preview_planner.build_path(frame, matched, raw_hint)
-            branch_candidate_count = len(self.ctx.preview_planner.graph.outgoing_edges(matched.edge_id))
+            branch_candidate_count = len(
+                self.ctx.preview_planner.graph.continuation_traversals(
+                    matched.edge_id,
+                    matched.travel_direction,
+                )
+            )
             effective_hint = build_effective_route_hint(
                 raw_hint=raw_hint,
                 matched=matched,
@@ -374,6 +379,7 @@ class AutopilotApp:
                     "nearest_edge_distance_m": getattr(matcher_diagnostics, "nearest_edge_distance_m", None),
                     "graph_failure": getattr(matcher_diagnostics, "failure_reason", None),
                     "selected_edge_id": getattr(matcher_diagnostics, "selected_edge_id", None),
+                    "selected_travel_direction": matched.travel_direction if matched else None,
                     "selected_reason": getattr(matcher_diagnostics, "selected_reason", None),
                     "direction_confidence_state": getattr(
                         matcher_diagnostics, "direction_confidence_state", None

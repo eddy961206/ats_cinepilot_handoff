@@ -33,6 +33,7 @@ class MatchedEdge:
     cross_track_error_m: float
     heading_error_rad: float
     confidence: float
+    travel_direction: str = "forward"
 
 
 @dataclass(slots=True)
