@@ -26,6 +26,8 @@ def load_trucksim_graph(path: str | Path) -> RoadGraph:
         return _from_generic_nodes_edges(payload)
 
     if "features" in payload:
+        if _looks_like_ats_geojson_roads(payload):
+            return _from_ats_geojson_roads(payload)
         return _from_geojson_like(payload)
 
     raise ValueError(
@@ -90,6 +92,105 @@ def _from_geojson_like(payload: dict) -> RoadGraph:
             metadata=props,
         )
     return RoadGraph(nodes=nodes, edges=edges, metadata={"source_format": "trucksim_geojson"})
+
+
+def _looks_like_ats_geojson_roads(payload: dict) -> bool:
+    features = payload.get("features", [])
+    road_features = [
+        feat
+        for feat in features
+        if feat.get("properties", {}).get("type") == "road"
+    ]
+    if not road_features:
+        return False
+    connectable = [
+        feat
+        for feat in road_features
+        if feat.get("geometry", {}).get("type") == "LineString"
+        and feat.get("properties", {}).get("startNodeUid") is not None
+        and feat.get("properties", {}).get("endNodeUid") is not None
+    ]
+    if connectable:
+        return True
+    raise ValueError(
+        "trucksim ATS GeoJSON road export does not contain connectable ATS road features"
+    )
+
+
+def _from_ats_geojson_roads(payload: dict) -> RoadGraph:
+    nodes: dict[str, Node] = {}
+    edges: dict[str, Edge] = {}
+    road_feature_count = 0
+    synthetic_reverse_edge_count = 0
+    skipped_feature_count = 0
+
+    for idx, feat in enumerate(payload.get("features", [])):
+        props = feat.get("properties", {})
+        geom = feat.get("geometry", {})
+        if props.get("type") != "road":
+            skipped_feature_count += 1
+            continue
+        if geom.get("type") != "LineString":
+            skipped_feature_count += 1
+            continue
+
+        start_node_id = _node_id(props.get("startNodeUid"))
+        end_node_id = _node_id(props.get("endNodeUid"))
+        coords = geom.get("coordinates", [])
+        if start_node_id is None or end_node_id is None or len(coords) < 2:
+            skipped_feature_count += 1
+            continue
+
+        points = [wgs84_to_ats_coords(float(lon), float(lat)) for lon, lat, *_ in coords]
+        if len(points) < 2:
+            skipped_feature_count += 1
+            continue
+
+        nodes.setdefault(
+            start_node_id,
+            Node(node_id=start_node_id, x=float(points[0][0]), z=float(points[0][1])),
+        )
+        nodes.setdefault(
+            end_node_id,
+            Node(node_id=end_node_id, x=float(points[-1][0]), z=float(points[-1][1])),
+        )
+
+        edge_id = str(feat.get("id") or props.get("id") or f"road_{idx}")
+        road_class = str(props.get("roadType", "trucksim_road"))
+        normalized_points = [(float(x), float(z)) for x, z in points]
+        edges[f"{edge_id}__fwd"] = Edge(
+            edge_id=f"{edge_id}__fwd",
+            start_node_id=start_node_id,
+            end_node_id=end_node_id,
+            points=normalized_points,
+            road_class=road_class,
+            metadata={**props, "synthetic_reverse": False},
+        )
+        edges[f"{edge_id}__rev"] = Edge(
+            edge_id=f"{edge_id}__rev",
+            start_node_id=end_node_id,
+            end_node_id=start_node_id,
+            points=list(reversed(normalized_points)),
+            road_class=road_class,
+            metadata={**props, "synthetic_reverse": True},
+        )
+        road_feature_count += 1
+        synthetic_reverse_edge_count += 1
+
+    if not edges:
+        raise ValueError("trucksim ATS GeoJSON road export does not contain usable road edges")
+
+    return RoadGraph(
+        nodes=nodes,
+        edges=edges,
+        metadata={
+            "source_format": "trucksim_ats_geojson_roads",
+            "source_feature_count": len(payload.get("features", [])),
+            "road_feature_count": road_feature_count,
+            "synthetic_reverse_edge_count": synthetic_reverse_edge_count,
+            "skipped_feature_count": skipped_feature_count,
+        },
+    )
 
 
 def _from_demo_graph(payload: dict) -> RoadGraph:
@@ -186,3 +287,9 @@ def crop_graph_to_radius(
             "cropped_edge_count": len(kept_edges),
         },
     )
+
+
+def _node_id(value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    return str(value)

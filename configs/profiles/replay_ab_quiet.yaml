@@ -1,0 +1,3 @@
+debug:
+  status_log_interval_frames: 25
+  loop_sleep_ms: 0

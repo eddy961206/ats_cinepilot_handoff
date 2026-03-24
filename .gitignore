@@ -13,3 +13,6 @@ data/calibrations/*.png
 data/debug/
 data/tools/
 data/captures/
+data/maps/trucksim_parser/
+data/maps/trucksim_graph/
+data/maps/trucksim_geojson/

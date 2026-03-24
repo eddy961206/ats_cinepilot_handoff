@@ -684,14 +684,15 @@ class ReplayTelemetrySource:
                 if not line.strip():
                     continue
                 row = json.loads(line)
-                pose = row["pose"]
+                frame_row = row.get("frame", row)
+                pose = frame_row["pose"]
                 yield TelemetryFrame(
-                    mono_time_s=float(row["mono_time_s"]),
-                    game_tick=int(row["game_tick"]),
-                    paused=bool(row["paused"]),
-                    speed_mps=float(row["speed_mps"]),
-                    speed_limit_mps=_opt_float(row.get("speed_limit_mps")),
-                    nav_distance_m=_opt_float(row.get("nav_distance_m")),
+                    mono_time_s=float(frame_row["mono_time_s"]),
+                    game_tick=int(frame_row["game_tick"]),
+                    paused=bool(frame_row["paused"]),
+                    speed_mps=float(frame_row["speed_mps"]),
+                    speed_limit_mps=_opt_float(frame_row.get("speed_limit_mps")),
+                    nav_distance_m=_opt_float(frame_row.get("nav_distance_m")),
                     pose=Pose2D(
                         world_x=float(pose["world_x"]),
                         world_z=float(pose["world_z"]),

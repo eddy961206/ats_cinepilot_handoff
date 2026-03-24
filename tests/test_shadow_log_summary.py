@@ -62,6 +62,7 @@ def test_summarize_shadow_log_collects_graph_and_safety_metrics(tmp_path):
     assert summary["pose_source"] == "authoritative_absolute"
     assert summary["pose_frame"] == "world_absolute"
     assert summary["first_match_lost_step"] == 1
+    assert summary["first_route_confidence_low_step"] == 2
     assert summary["safety_counts"] == {"MATCH_LOST": 1, "ROUTE_CONFIDENCE_LOW": 1}
     assert summary["heading_source_counts"] == {
         "absolute_position_delta": 1,

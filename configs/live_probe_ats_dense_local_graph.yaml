@@ -1,0 +1,14 @@
+extends:
+  - "live_probe_moza_shared_memory.yaml"
+
+telemetry:
+  pose_frame_mode: "world_absolute"
+
+map:
+  cache_path: "data/maps/cache/ats_usa_region_dense_local_geojson_8km.json"
+  source_name: "trucksim_local_geojson_region"
+  alignment_mode: "ats_absolute_identity"
+  query_radius_m: 40.0
+
+logging:
+  log_jsonl_path: "data/logs/live_probe_ats_dense_local_graph.jsonl"
