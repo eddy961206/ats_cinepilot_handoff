@@ -114,17 +114,17 @@ Expected parser output files used by this session:
 - `usa-prefabDescriptions.json`
 - other graph-generator-required parser outputs
 
-Graph-generator output directory:
-- `data/maps/trucksim_graph/ats_local/`
+Focused GeoJSON output directory:
+- `data/maps/trucksim_geojson/ats_local_region/`
 
-Expected dense graph file:
-- `data/maps/trucksim_graph/ats_local/usa-graph.json`
+Expected focused road artifact:
+- `data/maps/trucksim_geojson/ats_local_region/*.geojson`
 
 Internal runtime cache artifact:
-- `data/maps/cache/ats_usa_region_dense_graph_8km.json`
+- `data/maps/cache/ats_usa_region_dense_local_geojson_8km.json`
 
 Dense runtime config:
-- `configs/live_probe_ats_dense_graph.yaml`
+- `configs/live_probe_ats_dense_local_graph.yaml`
 
 The coarse path remains:
 - `configs/live_probe_ats_real_graph.yaml`

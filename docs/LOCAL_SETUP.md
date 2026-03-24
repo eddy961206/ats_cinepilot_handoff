@@ -35,6 +35,20 @@ D:\Steam\steamapps\common\American Truck Simulator\bin\win_x64\plugins\atsshared
   - DLL을 ATS `bin\win_x64\plugins\` 아래에 둬야 함
   - Python 쪽 `scscontroller.py`도 import 가능해야 함
 
+### dense local graph export
+- local dense graph는 `_ext/trucksim_maps_repo`를 쓴다.
+- Windows에선 `parser` native addon 빌드 때문에 Visual Studio C++ Build Tools가 필요하다.
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --accept-package-agreements --accept-source-agreements --override "--wait --quiet --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+cd C:\workspaces\python_workspace\_ext\trucksim_maps_repo
+npm install
+```
+
+중요:
+- 이 repo는 `npm install` 마지막 symlink postinstall이 `EPERM`으로 죽을 수 있다.
+- 그래도 `cityhash.node`, `gdeflate.node`, `tsx`가 생겼으면 `scripts/export_local_dense_graph.py`는 동작한다.
+
 ## 4. 설정 검증
 
 replay:
@@ -131,7 +145,22 @@ longer run:
 - 지금 성공은 **authoritative absolute pose + anchored-local toy-graph matching bring-up 성공**이다.
 - 아직 실제 ATS global road graph 정렬이 끝났다는 뜻은 아니다.
 
-## 9. controls probe
+## 9. dense local graph export
+
+```powershell
+.\.venv\Scripts\python scripts\export_local_dense_graph.py --config configs\live_probe_ats_real_graph.yaml --config configs\profiles\replay_ab_straight_light_turn.yaml --parser-output-dir "data\maps\trucksim_parser\ats_local" --geojson-output-dir "data\maps\trucksim_geojson\ats_local_region" --output-cache "data\maps\cache\ats_usa_region_dense_local_geojson_8km.json" --radius-m 8000
+```
+
+이번 세션의 실제 결과:
+
+- export 성공
+- `node_count = 2143`
+- `edge_count = 4312`
+- `graph_source = trucksim_local_geojson_region`
+- `alignment_mode = ats_absolute_identity`
+- runtime config: `configs/live_probe_ats_dense_local_graph.yaml`
+
+## 10. controls probe
 
 ```powershell
 .\.venv\Scripts\python scripts\inspect_controls.py --config configs\default.yaml --dry-run

@@ -4,7 +4,7 @@
 
 **Goal:** Add one dense local ATS regional graph export path, run A/B comparisons against toy/coarse graph paths, and make an explicit call on whether graph fidelity or route source is the next main bottleneck.
 
-**Architecture:** Use the local `trucksim_maps_repo` parser and graph generator against the installed ATS directory, then convert the resulting dense local graph plus parser node coordinates into the repo’s internal graph cache format. Keep toy and coarse public graph paths intact, expose dense graph selection with explicit config and metadata, and compare all graph paths through the existing shadow/replay summary workflow.
+**Architecture:** Use the local `trucksim_maps_repo` parser and focused road GeoJSON export against the installed ATS directory, then convert the resulting dense local graph into the repo’s internal graph cache format. Keep toy and coarse public graph paths intact, expose dense graph selection with explicit config and metadata, and compare all graph paths through the existing shadow/replay summary workflow.
 
 **Tech Stack:** Python 3.11, pytest, ruff, local Node/npm toolchain, `_ext/trucksim_maps_repo`, ATS `shared_memory_v2`
 
@@ -75,9 +75,9 @@ git commit -m "feat: [map] dense local graph adapter 추가"
 ### Task 2: Add repeatable local export script
 
 **Files:**
-- Create: `scripts/export_dense_local_map.py`
+- Create: `scripts/export_local_dense_graph.py`
 - Modify: `scripts/export_map.py`
-- Test: `tests/test_export_dense_local_map.py`
+- Test: `tests/test_export_map.py`
 
 - [ ] **Step 1: Write the failing export-script tests**
 
@@ -91,7 +91,7 @@ Add tests that:
 Run:
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q tests\test_export_dense_local_map.py
+.\.venv\Scripts\python -m pytest -q tests\test_export_map.py
 ```
 
 Expected:
@@ -112,7 +112,7 @@ The script should:
 Run:
 
 ```powershell
-.\.venv\Scripts\python -m pytest -q tests\test_export_dense_local_map.py
+.\.venv\Scripts\python -m pytest -q tests\test_export_map.py
 ```
 
 Expected:
@@ -121,7 +121,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add scripts/export_dense_local_map.py scripts/export_map.py tests/test_export_dense_local_map.py
+git add scripts/export_local_dense_graph.py scripts/export_map.py tests/test_export_map.py
 git commit -m "feat: [scripts] dense local graph export workflow 추가"
 ```
 
@@ -130,7 +130,7 @@ git commit -m "feat: [scripts] dense local graph export workflow 추가"
 ### Task 3: Add dense graph runtime config and diagnostics buckets
 
 **Files:**
-- Create: `configs/live_probe_ats_dense_graph.yaml`
+- Create: `configs/live_probe_ats_dense_local_graph.yaml`
 - Modify: `src/ats_cinepilot/app.py`
 - Modify: `scripts/summarize_shadow_log.py`
 - Modify: `tests/test_shadow_log_summary.py`
@@ -176,7 +176,7 @@ Expected:
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add configs/live_probe_ats_dense_graph.yaml src/ats_cinepilot/app.py scripts/summarize_shadow_log.py tests/test_shadow_log_summary.py tests/test_startup.py
+git add configs/live_probe_ats_dense_local_graph.yaml src/ats_cinepilot/app.py scripts/summarize_shadow_log.py tests/test_shadow_log_summary.py tests/test_startup.py
 git commit -m "feat: [runtime] dense graph 선택과 비교 진단 추가"
 ```
 
@@ -185,7 +185,7 @@ git commit -m "feat: [runtime] dense graph 선택과 비교 진단 추가"
 ### Task 4: Produce dense regional cache and validate export
 
 **Files:**
-- Create: `data/maps/cache/ats_usa_region_dense_graph_8km.json`
+- Create: `data/maps/cache/ats_usa_region_dense_local_geojson_8km.json`
 - Modify: `docs/SHARED_MEMORY_V2_DESIGN.md`
 - Modify: `docs/RUNBOOK.md`
 
@@ -206,7 +206,7 @@ Expected:
 Run:
 
 ```powershell
-.\.venv\Scripts\python scripts\export_dense_local_map.py --ats-dir "D:\Steam\steamapps\common\American Truck Simulator" --toolchain-dir "C:\workspaces\python_workspace\_ext\trucksim_maps_repo" --parser-output "data\maps\trucksim_parser\ats_local" --graph-output "data\maps\trucksim_graph\ats_local" --cache-output "data\maps\cache\ats_usa_region_dense_graph_8km.json" --center-from-config configs\live_probe_moza_shared_memory.yaml --crop-radius-m 8000 --reuse-parser-output
+.\.venv\Scripts\python scripts\export_local_dense_graph.py --config configs\live_probe_ats_real_graph.yaml --config configs\profiles\replay_ab_straight_light_turn.yaml --parser-output-dir "data\maps\trucksim_parser\ats_local" --geojson-output-dir "data\maps\trucksim_geojson\ats_local_region" --output-cache "data\maps\cache\ats_usa_region_dense_local_geojson_8km.json" --radius-m 8000
 ```
 
 Expected:
@@ -224,7 +224,7 @@ Run a short inspection command and confirm:
 - [ ] **Step 4: Commit**
 
 ```powershell
-git add data/maps/cache/ats_usa_region_dense_graph_8km.json docs/SHARED_MEMORY_V2_DESIGN.md docs/RUNBOOK.md
+git add data/maps/cache/ats_usa_region_dense_local_geojson_8km.json docs/SHARED_MEMORY_V2_DESIGN.md docs/RUNBOOK.md
 git commit -m "feat: [data] dense regional graph cache와 export 메타데이터 추가"
 ```
 
@@ -244,7 +244,7 @@ Run:
 ```powershell
 .\.venv\Scripts\python -m pytest -q
 .\.venv\Scripts\python -m ruff check .
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_ats_dense_graph.yaml --frames 3
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_ats_dense_local_graph.yaml --frames 3
 ```
 
 Expected:
@@ -307,7 +307,7 @@ git commit -m "docs: [status] dense graph 비교와 다음 bottleneck 결론 반
 @'
 from ats_cinepilot.ops.config import resolve_config, validate_runtime_config
 from ats_cinepilot.ops.startup import validate_startup_requirements
-for path in ['configs/profiles/replay_demo.yaml', 'configs/live_probe_ats_real_graph.yaml', 'configs/live_probe_ats_dense_graph.yaml']:
+for path in ['configs/profiles/replay_demo.yaml', 'configs/live_probe_ats_real_graph.yaml', 'configs/live_probe_ats_dense_local_graph.yaml']:
     cfg = resolve_config([path])
     issues = validate_runtime_config(cfg)
     issues.extend(validate_startup_requirements(cfg, mode='shadow'))
