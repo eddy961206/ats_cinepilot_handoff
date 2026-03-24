@@ -155,10 +155,15 @@ longer run:
 
 - export 성공
 - `node_count = 2143`
-- `edge_count = 4312`
+- `edge_count = 2156`
 - `graph_source = trucksim_local_geojson_region`
 - `alignment_mode = ats_absolute_identity`
+- `synthetic_reverse_edges = false`
 - runtime config: `configs/live_probe_ats_dense_local_graph.yaml`
+
+중요:
+- `--synthetic-reverse-edges`는 실험용 옵션이다.
+- selected dense runtime path는 forward-only cache를 기준으로 direction semantics를 검증한다.
 
 ## 10. controls probe
 

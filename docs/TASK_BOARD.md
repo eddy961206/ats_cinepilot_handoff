@@ -11,13 +11,15 @@
 - [x] dense local geojson cache export 성공
 - [x] replay source가 recorder `frame` wrapper를 직접 읽도록 확장
 - [x] coarse vs dense local replay A/B 수행
+- [x] synthetic reverse edge를 default에서 제거하고 실험용 옵션으로 격리
 - [x] 다음 dominant bottleneck을 `route source`가 아니라 `graph-side direction semantics / heading handling`으로 명시
 
 ## P0 Next
 
 - [ ] dense local geojson edge direction semantics를 다시 검증
-- [ ] synthetic reverse edge 전략이 turn-heavy에서 맞는지 확인
-- [ ] matcher heading cost와 candidate selection이 turn-heavy에서 왜 `MATCH_LOST`를 많이 내는지 분해
+- [ ] raw road feature 방향이 실제 주행 방향과 어긋나는 구간을 분류
+- [ ] matcher heading cost와 candidate selection이 straight/light-turn에서 왜 `heading≈π`로 붙는지 분해
+- [ ] turn-heavy에서 route confidence는 높은데 `MATCH_LOST`가 나는 이유를 분해
 - [ ] 같은 지역에서 direction/heading 수정판으로 A/B 재실행
 
 ## P1

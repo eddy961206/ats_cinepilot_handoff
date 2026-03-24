@@ -16,7 +16,8 @@
     - parser output 재사용
     - focused ATS road GeoJSON 생성
     - internal graph cache로 변환
-    - 현재는 synthetic bidirectional edge를 추가해서 direction mismatch를 완화
+    - 기본값은 forward-only edge
+    - `--synthetic-reverse-edges`는 실험용 옵션으로만 남김
 - replay source가 recorder 로그의 `frame` wrapper도 직접 읽게 했다.
   - file: `src/ats_cinepilot/bridge/scs_telemetry.py`
   - 그래서 ATS-backed live log 하나를 graph A/B replay input으로 바로 쓸 수 있다.
@@ -66,9 +67,10 @@ command:
 
 result metadata:
 - `node_count = 2143`
-- `edge_count = 4312`
+- `edge_count = 2156`
 - `graph_source = trucksim_local_geojson_region`
 - `alignment_mode = ats_absolute_identity`
+- `synthetic_reverse_edges = false`
 
 현실 체크:
 - local parser / geojson intermediate는 reproducible local artifact라 `.gitignore`로 제외했다.
@@ -88,11 +90,11 @@ result metadata:
 - dense local geojson replay
   - same ATS-backed input
   - `steps=150`
-  - `safety={MATCH_LOST: 135, ROUTE_CONFIDENCE_LOW: 15}`
+  - `safety={MATCH_LOST: 150}`
   - `first_MATCH_LOST=1`
-  - `first_ROUTE_CONFIDENCE_LOW=136`
-  - `route=[0.449, 0.622]`
+  - `route=[0.447, 0.622]`
   - `cte_max=8.651`
+  - `match=[0.617, 0.901]`
 
 ### turn-heavy
 
@@ -106,25 +108,26 @@ result metadata:
 - dense local geojson replay
   - same ATS-backed input
   - `steps=200`
-  - `safety={MATCH_LOST: 181, ROUTE_CONFIDENCE_LOW: 19}`
-  - `first_ROUTE_CONFIDENCE_LOW=113`
-  - `route=[0.302, 0.612]`
-  - `cte_max=14.582`
+  - `safety={MATCH_LOST: 181, NONE: 19}`
+  - `route=[0.482, 0.689]`
+  - `cte_max=17.318`
+  - `match=[0.706, 0.996]`
 
 ### 해석
 
-- dense local geojson path는 straight/light-turn에서는 coarse public graph보다 분명히 좋아졌다.
-- turn-heavy에서는 route confidence는 개선됐지만 `MATCH_LOST`가 더 많았다.
-- 즉 dense local graph가 graph coverage만 늘린 수준을 넘어서긴 했지만, 아직 turn-heavy direction/heading semantics가 충분히 정리되지 않았다.
+- synthetic reverse edge를 기본값에서 제거하자 straight/light-turn에서 `heading≈π` mismatch가 바로 드러났다.
+- turn-heavy에서는 route confidence가 크게 좋아졌는데도 safety는 여전히 `MATCH_LOST`가 우세했다.
+- 즉 dense local graph는 graph coverage를 넘어서서 direction semantics 문제를 드러내는 단계까지 왔지만, 아직 방향성/heading 평가가 충분히 맞지 않는다.
 
 ## 현재 가장 큰 병목
 
 현재 dominant bottleneck은 **route source가 아니라 graph-side direction semantics / heading handling**이다.
 
 근거:
-- dense local geojson 경로에서 straight/light-turn 품질은 좋아졌다.
-- turn-heavy에서는 route confidence가 오히려 개선됐는데도 safety가 주로 `MATCH_LOST`에서 죽는다.
-- 이건 “route intent가 없어서 못 고른다”보다, “현재 graph edge 방향성과 heading 평가가 turn-heavy에서 충분히 robust하지 않다”에 더 가깝다.
+- forward-only dense local geojson 경로에서 straight/light-turn이 `heading≈π` 때문에 바로 무너진다.
+- turn-heavy에서는 route confidence가 높아져도 safety가 주로 `MATCH_LOST`에서 죽는다.
+- reverse edge를 억지로 추가하면 straight는 나아지지만 direction semantics 검증 자체가 오염된다.
+- 그래서 “route intent가 없어서 못 고른다”보다, “현재 graph edge 방향성과 heading 평가가 아직 정확하지 않다”에 더 가깝다.
 
 ## 다음 세션 권고
 
@@ -132,7 +135,7 @@ result metadata:
 
 우선순위:
 1. dense local geojson edge direction semantics 검토
-2. matcher의 heading cost와 synthetic reverse edge 전략 재검증
+2. matcher의 heading cost와 edge 방향 선택 로직 재검증
 3. 그다음에도 turn-heavy가 약하면 yaw semantics 후보를 다시 비교
 
 route source는 아직 이르다.

@@ -89,6 +89,11 @@ npm install
 - `graph_source = trucksim_local_geojson_region`
 - `alignment_mode = ats_absolute_identity`
 - `node_count`, `edge_count`
+- `synthetic_reverse_edges = false`
+
+주의:
+- `--synthetic-reverse-edges`는 실험용이다.
+- selected path는 forward-only cache로 direction semantics를 드러내는 쪽을 택한다.
 
 ## replay A/B
 
@@ -121,7 +126,8 @@ coarse vs dense replay:
 ## 현재 해석
 
 - toy graph 대비 real-graph family는 coverage가 훨씬 낫다
-- dense local graph는 straight/light-turn에서는 coarse public graph보다 좋아졌지만, turn-heavy는 아직 불안정하다
+- dense local graph forward-only path는 straight/light-turn에서 `heading≈π` mismatch를 드러낸다
+- turn-heavy에서는 route confidence가 높아져도 `MATCH_LOST`가 남는다
 - 그래서 다음 세션은 route source보다 graph fidelity가 우선이다
 
 ## live shadow run
@@ -140,5 +146,5 @@ coarse vs dense replay:
 
 - dense local graph가 coarse보다 확실히 좋아지면:
   - 그때 route source를 검토
-- dense local graph가 coarse보다 여전히 비슷하거나 나쁘면:
-  - route source로 가지 말고 graph geometry/toolchain을 다시 파기
+- dense local graph가 direction semantics 때문에 무너지면:
+  - route source로 가지 말고 edge direction / heading cost / candidate selection부터 다시 파기
