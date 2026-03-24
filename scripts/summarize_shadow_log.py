@@ -27,6 +27,8 @@ def summarize_log(path: Path) -> dict:
     safety_counts: Counter[str] = Counter()
     heading_counts: Counter[str] = Counter()
     graph_failure_counts: Counter[str] = Counter()
+    selected_reason_counts: Counter[str] = Counter()
+    direction_confidence_counts: Counter[str] = Counter()
     match_values: list[float] = []
     route_values: list[float] = []
     cte_values: list[float] = []
@@ -49,6 +51,10 @@ def summarize_log(path: Path) -> dict:
             safety_counts[safety] += 1
             heading_counts[str(status.get("heading_source", "unknown"))] += 1
             graph_failure_counts[str(status.get("graph_failure", "None"))] += 1
+            if status.get("selected_reason") is not None:
+                selected_reason_counts[str(status["selected_reason"])] += 1
+            if status.get("direction_confidence_state") is not None:
+                direction_confidence_counts[str(status["direction_confidence_state"])] += 1
             if safety == "MATCH_LOST" and first_match_lost_step is None:
                 first_match_lost_step = index
             if safety == "ROUTE_CONFIDENCE_LOW" and first_route_confidence_low_step is None:
@@ -71,6 +77,8 @@ def summarize_log(path: Path) -> dict:
         "safety_counts": dict(safety_counts),
         "heading_source_counts": dict(heading_counts),
         "graph_failure_counts": dict(graph_failure_counts),
+        "selected_reason_counts": dict(selected_reason_counts),
+        "direction_confidence_state_counts": dict(direction_confidence_counts),
         "first_match_lost_step": first_match_lost_step,
         "first_route_confidence_low_step": first_route_confidence_low_step,
         "match_confidence_min": min(match_values) if match_values else None,
@@ -116,6 +124,8 @@ def print_summary(summary: dict) -> None:
     )
     print(f"  heading_sources={summary['heading_source_counts']}")
     print(f"  graph_failures={summary['graph_failure_counts']}")
+    print(f"  selected_reasons={summary['selected_reason_counts']}")
+    print(f"  direction_confidence={summary['direction_confidence_state_counts']}")
 
 
 def _append_numeric(values: list[float], value: object) -> None:
