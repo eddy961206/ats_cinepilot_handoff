@@ -38,9 +38,15 @@ def polyline_length(points: Iterable[tuple[float, float]]) -> float:
 
 
 class RoadGraph:
-    def __init__(self, nodes: dict[str, Node], edges: dict[str, Edge]) -> None:
+    def __init__(
+        self,
+        nodes: dict[str, Node],
+        edges: dict[str, Edge],
+        metadata: dict | None = None,
+    ) -> None:
         self.nodes = nodes
         self.edges = edges
+        self.metadata = dict(metadata or {})
         self._outgoing_by_node: dict[str, list[str]] = {}
         self._incoming_by_node: dict[str, list[str]] = {}
         for edge in edges.values():

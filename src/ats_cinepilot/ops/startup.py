@@ -9,6 +9,8 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
     hud_preset_path = cfg_get(cfg, "hud.preset_path", "")
     route_provider = "hud" if hud_preset_path else "none"
     hud_capture = "enabled" if hud_preset_path else "disabled"
+    graph_source = cfg_get(cfg, "map.source_name", "graph_cache")
+    alignment_mode = cfg_get(cfg, "map.alignment_mode", "unknown")
     telemetry_line = f"telemetry_source={telemetry_source}"
     if telemetry_source == "shared_memory_v2":
         telemetry_line += f" mapping={cfg_get(cfg, 'telemetry.shared_memory_name', 'SCSTelemetrySharedv2_ats')}"
@@ -19,6 +21,8 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
         f"control_sink={control_sink}",
         f"route_provider={route_provider}",
         f"hud_capture={hud_capture}",
+        f"graph_source={graph_source}",
+        f"alignment_mode={alignment_mode}",
         (
             "safety "
             f"telemetry_timeout_ms={cfg_get(cfg, 'safety.telemetry_timeout_ms', 250)} "

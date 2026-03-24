@@ -1,0 +1,13 @@
+extends:
+  - "live_probe_moza_shared_memory.yaml"
+
+telemetry:
+  pose_frame_mode: "anchored_local"
+
+map:
+  cache_path: "data/maps/cache/default_graph.json"
+  source_name: "toy_graph"
+  alignment_mode: "anchored_local_toy_graph"
+
+logging:
+  log_jsonl_path: "data/logs/live_probe_ats_toy_graph.jsonl"
