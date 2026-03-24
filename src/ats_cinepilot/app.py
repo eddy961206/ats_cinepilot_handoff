@@ -65,7 +65,11 @@ def _top_candidate_snapshot(candidates: object, limit: int = 3) -> list[dict[str
             "edge_id": getattr(candidate, "edge_id", None),
             "distance_m": _maybe_float(getattr(candidate, "distance_m", None)),
             "signed_heading_delta_rad": _maybe_float(getattr(candidate, "signed_heading_delta_rad", None)),
+            "effective_heading_delta_rad": _maybe_float(
+                getattr(candidate, "effective_heading_delta_rad", None)
+            ),
             "direction_classification": getattr(candidate, "direction_classification", None),
+            "heading_mode": getattr(candidate, "heading_mode", None),
             "total_score": _maybe_float(getattr(candidate, "total_score", None)),
         })
     return snapshot
@@ -167,6 +171,14 @@ class AutopilotApp:
             spatial_index=spatial_index,
             config=MatcherConfig(
                 query_radius_m=float(cfg_get(cfg, "map.query_radius_m", 45.0)),
+                heading_weight=float(cfg_get(cfg, "map.heading_weight", 0.35)),
+                distance_weight=float(cfg_get(cfg, "map.distance_weight", 0.55)),
+                hysteresis_weight=float(cfg_get(cfg, "map.hysteresis_weight", 0.10)),
+                continuity_distance_slack_m=float(cfg_get(cfg, "map.continuity_distance_slack_m", 1.0)),
+                reverse_heading_min_advantage_m=float(
+                    cfg_get(cfg, "map.reverse_heading_min_advantage_m", 1.0)
+                ),
+                reverse_heading_penalty=float(cfg_get(cfg, "map.reverse_heading_penalty", 0.5)),
             ),
         )
 
