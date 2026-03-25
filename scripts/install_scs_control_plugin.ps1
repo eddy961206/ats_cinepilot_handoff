@@ -36,6 +36,8 @@ $dllPath = Join-Path $buildDir "Release\scs_sdk_controller.dll"
 $pluginDir = Join-Path $AtsGameDir "bin\win_x64\plugins"
 $pluginTarget = Join-Path $pluginDir "scs_sdk_controller.dll"
 
+& ".\.venv\Scripts\python.exe" "scripts\patch_scs_control_plugin.py" --repo $ExternalRepoPath
+
 cmd /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && `"$cmakeExe`" -S `"$ExternalRepoPath`" -B `"$buildDir`" && `"$cmakeExe`" --build `"$buildDir`" --config Release"
 
 if (-not (Test-Path $dllPath)) {
