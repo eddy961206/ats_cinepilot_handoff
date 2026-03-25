@@ -35,6 +35,7 @@ def main() -> None:
     parser.add_argument("--frames", type=int, default=10)
     parser.add_argument("--scan-pose-candidates", action="store_true")
     parser.add_argument("--save-json", default="")
+    parser.add_argument("--require-ready", action="store_true")
     args = parser.parse_args()
 
     cfg = resolve_config(args.config)
@@ -48,13 +49,15 @@ def main() -> None:
         print(f"replay path: {replay_path}")
         source = ReplayTelemetrySource(cfg_get(cfg, "logging.replay_path"))
     elif source_name == "shared_memory_v2":
-        _print_shared_memory_diagnostics(
+        category = _print_shared_memory_diagnostics(
             cfg,
             ats_running,
             frames=max(args.frames, 2),
             scan_pose_candidates=args.scan_pose_candidates,
             save_json=args.save_json,
         )
+        if args.require_ready and category != "telemetry ready":
+            raise SystemExit(3)
         return
     else:
         _print_shared_memory_probe(cfg)
@@ -113,7 +116,7 @@ def _print_shared_memory_diagnostics(
     frames: int,
     scan_pose_candidates: bool,
     save_json: str,
-) -> None:
+) -> str:
     mapping_name = cfg_get(cfg, "telemetry.shared_memory_name", "SCSTelemetrySharedv2_ats")
     plugin_dll_name = cfg_get(cfg, "telemetry.plugin_dll_name", "atssharedplugin64v2.dll")
     game_dir = find_ats_game_dir()
@@ -163,6 +166,7 @@ def _print_shared_memory_diagnostics(
     print(f"telemetry status: {category}")
     for detail in details:
         print(f"  - {detail}")
+    return category
 
 
 def _sample_shared_memory_v2(

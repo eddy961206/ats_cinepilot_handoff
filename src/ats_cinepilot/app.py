@@ -8,7 +8,12 @@ from typing import Optional
 
 from ats_cinepilot.bridge.capture_dxcam import DXcamCaptureSource, DXcamConfig
 from ats_cinepilot.bridge.capture_mss import MSSCaptureSource, MSSConfig
-from ats_cinepilot.bridge.manual_override import AlwaysFalseOverrideSource
+from ats_cinepilot.bridge.hybrid_controls import (
+    HybridControlConfig,
+    ModuleSteeringKeyboardLongitudinalSink,
+)
+from ats_cinepilot.bridge.keyboard_controls import KeyboardControlConfig, KeyboardControlSink
+from ats_cinepilot.bridge.manual_override import AlwaysFalseOverrideSource, FileFlagOverrideSource
 from ats_cinepilot.bridge.scs_controls import (
     DynamicModuleControlSink,
     ModuleControlConfig,
@@ -27,7 +32,14 @@ from ats_cinepilot.control.longitudinal_pid import PidConfig, PidSpeedController
 from ats_cinepilot.control.mixer import build_vehicle_command
 from ats_cinepilot.domain.enums import DisengageReason, Mode
 from ats_cinepilot.domain.state_machine import AutopilotStateMachine
-from ats_cinepilot.domain.types import MatchedEdge, PreviewPath, RouteHint, SafetyDecision, SpeedTarget, TelemetryFrame
+from ats_cinepilot.domain.types import (
+    MatchedEdge,
+    PreviewPath,
+    RouteHint,
+    SafetyDecision,
+    SpeedTarget,
+    TelemetryFrame,
+)
 from ats_cinepilot.map.cache import load_graph_cache
 from ats_cinepilot.map.matcher import MatcherConfig, SimplePoseMatcher
 from ats_cinepilot.map.spatial_index import SimpleSpatialIndex
@@ -40,6 +52,7 @@ from ats_cinepilot.planner.speed_profile import SpeedPlanner, SpeedPlannerConfig
 from ats_cinepilot.route.fusion import build_effective_route_hint
 from ats_cinepilot.route.providers import HudRouteProvider, HudRouteProviderConfig, NullRouteProvider
 from ats_cinepilot.safety.arbiter import RuleBasedSafetyPolicy, SafetyConfig
+from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoSafetyCage, resolve_demo_command
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +112,7 @@ class RuntimeContext:
     recorder: Optional[JsonlRecorder]
     state_machine: AutopilotStateMachine
     telemetry_health: TelemetryFreshnessTracker
+    demo_cage: DemoSafetyCage | None = None
     capture_source: any = None
     status_log_interval_frames: int = 25
     loop_sleep_ms: int = 0
@@ -151,6 +165,40 @@ class AutopilotApp:
             control_sink = NoopControlSink()
         elif control_sink_name == "recording":
             control_sink = RecordingControlSink(cfg_get(cfg, "logging.log_jsonl_path"))
+        elif control_sink_name == "keyboard":
+            control_sink = KeyboardControlSink(
+                KeyboardControlConfig(
+                    steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                    steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                    throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                    brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                    steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                    throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                    brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                )
+            )
+        elif control_sink_name == "hybrid":
+            control_sink = ModuleSteeringKeyboardLongitudinalSink(
+                HybridControlConfig(
+                    module=ModuleControlConfig(
+                        module_name=cfg_get(cfg, "control.module_name"),
+                        class_name=cfg_get(cfg, "control.class_name"),
+                        apply_method=cfg_get(cfg, "control.apply_method", ""),
+                        neutral_method=cfg_get(cfg, "control.neutral_method", ""),
+                        field_mapping=dict(cfg_get(cfg, "control.field_mapping", {})),
+                        module_search_paths=list(cfg_get(cfg, "control.module_search_paths", [])),
+                    ),
+                    keyboard=KeyboardControlConfig(
+                        steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                        steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                        throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                        brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                        steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                        throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                        brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                    ),
+                )
+            )
         else:
             control_sink = DynamicModuleControlSink(
                 ModuleControlConfig(
@@ -159,6 +207,7 @@ class AutopilotApp:
                     apply_method=cfg_get(cfg, "control.apply_method", ""),
                     neutral_method=cfg_get(cfg, "control.neutral_method", ""),
                     field_mapping=dict(cfg_get(cfg, "control.field_mapping", {})),
+                    module_search_paths=list(cfg_get(cfg, "control.module_search_paths", [])),
                 )
             )
         control_sink.connect()
@@ -238,6 +287,7 @@ class AutopilotApp:
                 kd=float(cfg_get(cfg, "control_tuning.kd", 0.08)),
                 brake_bias=float(cfg_get(cfg, "control_tuning.brake_bias", 0.12)),
                 deadband_mps=float(cfg_get(cfg, "control_tuning.deadband_mps", 0.35)),
+                integral_limit=float(cfg_get(cfg, "control_tuning.integral_limit", 20.0)),
             )
         )
         safety_policy = RuleBasedSafetyPolicy(
@@ -255,6 +305,61 @@ class AutopilotApp:
         telemetry_health = TelemetryFreshnessTracker(
             timeout_ms=int(cfg_get(cfg, "safety.telemetry_timeout_ms", 250))
         )
+        manual_override_flag_path = cfg_get(cfg, "manual_override.flag_path", "")
+        manual_override = (
+            FileFlagOverrideSource(manual_override_flag_path)
+            if manual_override_flag_path
+            else AlwaysFalseOverrideSource()
+        )
+        demo_cage = None
+        if cfg_get(cfg, "demo.enabled", False):
+            demo_cage = DemoSafetyCage(
+                DemoCageConfig(
+                    enabled=True,
+                    corridor_name=str(cfg_get(cfg, "demo.corridor_name", "unnamed")),
+                    approved_graph_source=str(cfg_get(cfg, "demo.approved_graph_source", "")),
+                    approved_alignment_mode=str(cfg_get(cfg, "demo.approved_alignment_mode", "")),
+                    approved_edge_ids=tuple(str(item) for item in cfg_get(cfg, "demo.approved_edge_ids", [])),
+                    allowed_travel_directions=tuple(
+                        str(item) for item in cfg_get(cfg, "demo.allowed_travel_directions", ["forward"])
+                    ),
+                    allowed_direction_confidence_states=tuple(
+                        str(item)
+                        for item in cfg_get(cfg, "demo.allowed_direction_confidence_states", ["confident"])
+                    ),
+                    allowed_pose_sources=tuple(
+                        str(item)
+                        for item in cfg_get(cfg, "demo.allowed_pose_sources", ["authoritative_absolute"])
+                    ),
+                    allowed_heading_sources=tuple(
+                        str(item)
+                        for item in cfg_get(
+                            cfg,
+                            "demo.allowed_heading_sources",
+                            ["absolute_position_delta", "absolute_position_hold"],
+                        )
+                    ),
+                    min_progress_m=_maybe_float(cfg_get(cfg, "demo.min_progress_m")),
+                    max_progress_m=_maybe_float(cfg_get(cfg, "demo.max_progress_m")),
+                    min_match_confidence=float(cfg_get(cfg, "demo.min_match_confidence", 0.97)),
+                    min_route_confidence=float(cfg_get(cfg, "demo.min_route_confidence", 0.65)),
+                    max_cross_track_error_m=float(cfg_get(cfg, "demo.max_cross_track_error_m", 0.30)),
+                    max_heading_error_deg=float(cfg_get(cfg, "demo.max_heading_error_deg", 8.0)),
+                    max_nearest_edge_distance_m=float(
+                        cfg_get(cfg, "demo.max_nearest_edge_distance_m", 0.30)
+                    ),
+                    max_speed_mps=float(cfg_get(cfg, "demo.max_speed_mps", 4.0)),
+                    max_graph_candidate_count=int(cfg_get(cfg, "demo.max_graph_candidate_count", 1)),
+                    require_anchor_locked=bool(cfg_get(cfg, "demo.require_anchor_locked", True)),
+                    require_no_discontinuity=bool(cfg_get(cfg, "demo.require_no_discontinuity", True)),
+                    arm_consecutive_frames=int(cfg_get(cfg, "demo.arm_consecutive_frames", 10)),
+                    bootstrap_max_speed_mps=float(cfg_get(cfg, "demo.bootstrap_max_speed_mps", 0.0)),
+                    bootstrap_throttle=float(cfg_get(cfg, "demo.bootstrap_throttle", 0.0)),
+                    allow_speed_cap_brake_assist=bool(
+                        cfg_get(cfg, "demo.allow_speed_cap_brake_assist", True)
+                    ),
+                )
+            )
 
         return RuntimeContext(
             telemetry_source=telemetry_source,
@@ -266,10 +371,11 @@ class AutopilotApp:
             lateral_controller=lateral_controller,
             longitudinal_controller=longitudinal_controller,
             safety_policy=safety_policy,
-            manual_override=AlwaysFalseOverrideSource(),
+            manual_override=manual_override,
             recorder=recorder,
             state_machine=state_machine,
             telemetry_health=telemetry_health,
+            demo_cage=demo_cage,
             capture_source=capture_source,
             status_log_interval_frames=max(1, int(cfg_get(cfg, "debug.status_log_interval_frames", 25))),
             loop_sleep_ms=max(0, int(cfg_get(cfg, "debug.loop_sleep_ms", 0))),
@@ -335,7 +441,8 @@ class AutopilotApp:
         else:
             command = build_vehicle_command(0.0, 0.0, 0.0, effective_hint)
 
-        if self.ctx.manual_override.poll_override():
+        manual_override_active = self.ctx.manual_override.poll_override()
+        if manual_override_active:
             decision = self.ctx.safety_policy.evaluate(frame, matched, effective_hint, path, command)
             decision.allow_control = False
             decision.reason = DisengageReason.USER_OVERRIDE
@@ -344,14 +451,44 @@ class AutopilotApp:
         else:
             decision = self.ctx.safety_policy.evaluate(frame, matched, effective_hint, path, command)
 
-        if self.mode == "active" and decision.allow_control:
-            self.ctx.control_sink.apply(command)
-        else:
-            self.ctx.control_sink.neutralize()
+        telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
+        matcher_diagnostics = self.ctx.matcher.last_diagnostics
+        demo_status = None
+        demo_command = command
+        demo_brake_assist_active = False
+        if self.ctx.demo_cage is not None:
+            demo_status = self.ctx.demo_cage.evaluate(
+                frame=frame,
+                matched=matched,
+                hint=effective_hint,
+                path=path,
+                telemetry_state=telemetry_state,
+                matcher_diagnostics=matcher_diagnostics,
+                graph_source=self.ctx.graph_source,
+                alignment_mode=self.ctx.alignment_mode,
+                control_sink_healthy=self.ctx.control_sink.is_healthy(),
+                manual_override_active=manual_override_active,
+            )
+            demo_resolution = resolve_demo_command(command, demo_status, self.ctx.demo_cage.config)
+            demo_command = demo_resolution.command
+            demo_brake_assist_active = demo_resolution.apply_when_disengaged
+            if decision.allow_control and not demo_status.allow_control:
+                decision = SafetyDecision(False, reason=DisengageReason.DEMO_GUARD)
+
+        try:
+            if self.mode == "active" and (decision.allow_control or demo_brake_assist_active):
+                self.ctx.control_sink.apply(demo_command)
+            else:
+                self.ctx.control_sink.neutralize()
+        except Exception:
+            logger.exception("control write failed")
+            decision = SafetyDecision(False, reason=DisengageReason.WRITE_FAILED)
+            try:
+                self.ctx.control_sink.neutralize()
+            except Exception:
+                logger.exception("control neutralize failed after write failure")
 
         if self.ctx.recorder:
-            telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
-            matcher_diagnostics = self.ctx.matcher.last_diagnostics
             pose_delta_m = None
             if self._prev_frame is not None:
                 pose_delta_m = (
@@ -367,7 +504,7 @@ class AutopilotApp:
                 "hint": asdict(raw_hint) if raw_hint else None,
                 "effective_hint": asdict(effective_hint) if effective_hint else None,
                 "target": asdict(target) if target else None,
-                "command": asdict(command),
+                "command": asdict(demo_command),
                 "decision": {
                     "allow_control": decision.allow_control,
                     "reason": getattr(decision.reason, "name", str(decision.reason)),
@@ -410,14 +547,20 @@ class AutopilotApp:
                     "selected_branch": path.branch_id if path else None,
                     "speed_target_mps": target.target_mps if target else None,
                     "safety_decision": getattr(decision.reason, "name", str(decision.reason)),
+                    "demo_enabled": self.ctx.demo_cage is not None,
+                    "demo_guard_reason": demo_status.reason if demo_status is not None else None,
+                    "demo_armed": demo_status.armed if demo_status is not None else None,
+                    "demo_qualifying_frames": demo_status.qualifying_frames if demo_status is not None else None,
+                    "demo_command_mode": demo_resolution.mode if demo_status is not None else None,
+                    "demo_brake_assist_active": demo_brake_assist_active,
+                    "manual_override_active": manual_override_active,
                 },
             })
 
         self._step_count += 1
-        telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
         if self._step_count % self.ctx.status_log_interval_frames == 0:
             logger.info(
-                "step=%s mode=%s speed=%.2f fresh_ms=%.1f graph=%s/%s cand=%s near=%s fail=%s pose=%s/%s heading_src=%s anchor=%s reset=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s",
+                "step=%s mode=%s speed=%.2f fresh_ms=%.1f graph=%s/%s cand=%s near=%s fail=%s pose=%s/%s heading_src=%s anchor=%s reset=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s demo=%s/%s",
                 self._step_count,
                 self.mode,
                 frame.speed_mps,
@@ -441,6 +584,8 @@ class AutopilotApp:
                 path.branch_id if path else None,
                 round(target.target_mps, 2) if target else None,
                 getattr(decision.reason, "name", str(decision.reason)),
+                "armed" if demo_status and demo_status.armed else "pending",
+                demo_status.reason if demo_status else "disabled",
             )
 
         self._prev_match = matched

@@ -21,6 +21,7 @@ class DisengageReason(Enum):
     ROUTE_CONFIDENCE_LOW = auto()
     MATCH_LOST = auto()
     CURVATURE_OVERSPEED = auto()
+    DEMO_GUARD = auto()
     WRITE_FAILED = auto()
     PAUSED = auto()
     EXCEPTION = auto()

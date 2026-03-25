@@ -12,6 +12,7 @@ class PidConfig:
     kd: float = 0.08
     brake_bias: float = 0.12
     deadband_mps: float = 0.35
+    integral_limit: float = 20.0
 
 
 class PidSpeedController:
@@ -25,10 +26,14 @@ class PidSpeedController:
         error = target.target_mps - frame.speed_mps
 
         if abs(error) < self.config.deadband_mps:
+            self._integral = 0.0
             return 0.0, 0.0
 
         derivative = error - self._prev_error
+        if self._prev_error != 0.0 and (error > 0.0) != (self._prev_error > 0.0):
+            self._integral = 0.0
         self._integral += error
+        self._integral = max(-self.config.integral_limit, min(self.config.integral_limit, self._integral))
 
         u = (
             self.config.kp * error

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,40 @@ class ModuleControlConfig:
     apply_method: str = ""
     neutral_method: str = ""
     field_mapping: dict[str, str] | None = None
+    module_search_paths: list[str] | None = None
+
+
+def resolve_module_search_paths(paths: list[str] | None) -> list[str]:
+    if not paths:
+        return []
+    resolved: list[str] = []
+    for raw_path in paths:
+        path = Path(raw_path).expanduser().resolve()
+        if path.exists():
+            resolved.append(str(path))
+    return resolved
+
+
+@contextmanager
+def control_module_import_scope(paths: list[str] | None):
+    inserted: list[str] = []
+    for resolved in reversed(resolve_module_search_paths(paths)):
+        if resolved in sys.path:
+            continue
+        sys.path.insert(0, resolved)
+        inserted.append(resolved)
+    try:
+        yield
+    finally:
+        for resolved in inserted:
+            if resolved in sys.path:
+                sys.path.remove(resolved)
+
+
+def load_control_class(config: ModuleControlConfig):
+    with control_module_import_scope(config.module_search_paths):
+        module = importlib.import_module(config.module_name)
+        return getattr(module, config.class_name)
 
 
 class DynamicModuleControlSink:
@@ -32,8 +68,7 @@ class DynamicModuleControlSink:
         self._obj: Any = None
 
     def connect(self) -> None:
-        module = importlib.import_module(self.config.module_name)
-        klass = getattr(module, self.config.class_name)
+        klass = load_control_class(self.config)
         self._obj = klass()
         self._healthy = True
 

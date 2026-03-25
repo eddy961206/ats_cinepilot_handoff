@@ -24,3 +24,17 @@ def test_validate_runtime_config_reports_missing_replay_and_map_inputs():
 
     assert any("logging.replay_path" in issue for issue in issues)
     assert any("map.cache_path" in issue for issue in issues)
+
+
+def test_demo_active_corridor_profile_resolves_expected_demo_contract():
+    cfg = resolve_config(["configs/demo_active_corridor.yaml"])
+
+    assert cfg_get(cfg, "telemetry.source") == "shared_memory_v2"
+    assert cfg_get(cfg, "control.sink") == "hybrid"
+    assert cfg_get(cfg, "control.module_search_paths") == ["../_ext/scs-sdk-controller"]
+    assert cfg_get(cfg, "map.source_name") == "toy_graph"
+    assert cfg_get(cfg, "demo.enabled") is True
+    assert cfg_get(cfg, "demo.approved_edge_ids") == ["ab"]
+    assert cfg_get(cfg, "demo.min_progress_m") == 0.0
+    assert cfg_get(cfg, "demo.allow_speed_cap_brake_assist") is True
+    assert cfg_get(cfg, "manual_override.flag_path") == "data/runtime/demo_override.flag"

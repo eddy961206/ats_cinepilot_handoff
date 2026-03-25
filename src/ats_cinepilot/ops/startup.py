@@ -15,10 +15,15 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
     if telemetry_source == "shared_memory_v2":
         telemetry_line += f" mapping={cfg_get(cfg, 'telemetry.shared_memory_name', 'SCSTelemetrySharedv2_ats')}"
 
-    return [
+    if control_sink == "hybrid":
+        control_sink_display = "hybrid(module steering + keyboard throttle/brake)"
+    else:
+        control_sink_display = control_sink
+
+    lines = [
         f"startup mode={mode.lower()} live={'yes' if telemetry_source != 'replay' else 'no'}",
         telemetry_line,
-        f"control_sink={control_sink}",
+        f"control_sink={control_sink_display}",
         f"route_provider={route_provider}",
         f"hud_capture={hud_capture}",
         f"graph_source={graph_source}",
@@ -30,6 +35,19 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
             f"min_route_confidence={cfg_get(cfg, 'safety.min_route_confidence', 0.55)}"
         ),
     ]
+
+    if cfg_get(cfg, "demo.enabled", False):
+        edge_ids = ",".join(cfg_get(cfg, "demo.approved_edge_ids", [])) or "<none>"
+        lines.extend(
+            [
+                f"demo_enabled=yes corridor={cfg_get(cfg, 'demo.corridor_name', 'unnamed')}",
+                f"demo_edge_ids={edge_ids}",
+                f"demo_max_speed_mps={cfg_get(cfg, 'demo.max_speed_mps', 0.0)}",
+                f"manual_override_flag={cfg_get(cfg, 'manual_override.flag_path', '') or '<none>'}",
+            ]
+        )
+
+    return lines
 
 
 def validate_startup_requirements(cfg: dict, mode: str) -> list[str]:
@@ -43,5 +61,25 @@ def validate_startup_requirements(cfg: dict, mode: str) -> list[str]:
 
     if mode_lower == "active" and control_sink in {"noop", "recording"}:
         issues.append("active mode requires a real control sink, not noop/recording.")
+
+    if mode_lower == "active" and cfg_get(cfg, "demo.enabled", False):
+        if telemetry_source != "shared_memory_v2":
+            issues.append("demo active mode requires telemetry.source=shared_memory_v2.")
+        if control_sink != "hybrid":
+            issues.append("demo active mode requires control.sink=hybrid.")
+        approved_graph_source = cfg_get(cfg, "demo.approved_graph_source", "")
+        approved_alignment_mode = cfg_get(cfg, "demo.approved_alignment_mode", "")
+        map_source_name = cfg_get(cfg, "map.source_name", "")
+        map_alignment_mode = cfg_get(cfg, "map.alignment_mode", "")
+        if not approved_graph_source:
+            issues.append("demo.approved_graph_source is required when demo.enabled=true.")
+        elif approved_graph_source != map_source_name:
+            issues.append("demo.approved_graph_source must match map.source_name in active demo mode.")
+        if not approved_alignment_mode:
+            issues.append("demo.approved_alignment_mode is required when demo.enabled=true.")
+        elif approved_alignment_mode != map_alignment_mode:
+            issues.append("demo.approved_alignment_mode must match map.alignment_mode in active demo mode.")
+        if not cfg_get(cfg, "demo.approved_edge_ids", []):
+            issues.append("demo.approved_edge_ids must not be empty when demo.enabled=true.")
 
     return issues
