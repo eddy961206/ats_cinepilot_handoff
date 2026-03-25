@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from ats_cinepilot.domain.types import MatchedEdge, PreviewPath, RouteHint, TelemetryFrame
+from ats_cinepilot.domain.types import MatchedEdge, PreviewPath, RouteHint, TelemetryFrame, VehicleCommand
 
 
 @dataclass(slots=True)
@@ -29,6 +29,9 @@ class DemoCageConfig:
     require_anchor_locked: bool = True
     require_no_discontinuity: bool = True
     arm_consecutive_frames: int = 10
+    bootstrap_max_speed_mps: float = 0.0
+    bootstrap_throttle: float = 0.0
+    allow_speed_cap_brake_assist: bool = True
 
 
 @dataclass(slots=True)
@@ -37,6 +40,39 @@ class DemoCageDecision:
     reason: str
     armed: bool
     qualifying_frames: int
+
+
+@dataclass(slots=True)
+class DemoCommandResolution:
+    command: VehicleCommand
+    apply_when_disengaged: bool
+    mode: str
+
+
+def resolve_demo_command(
+    command: VehicleCommand,
+    decision: DemoCageDecision | None,
+    config: DemoCageConfig | None,
+) -> DemoCommandResolution:
+    if decision is None or config is None:
+        return DemoCommandResolution(command.clipped(), False, "passthrough")
+    if decision.reason == "bootstrap":
+        return DemoCommandResolution(
+            VehicleCommand(0.0, config.bootstrap_throttle, 0.0).clipped(),
+            False,
+            "bootstrap",
+        )
+    if (
+        config.allow_speed_cap_brake_assist
+        and decision.reason == "speed_cap_exceeded"
+        and command.brake > 0.0
+    ):
+        return DemoCommandResolution(
+            VehicleCommand(0.0, 0.0, command.brake).clipped(),
+            True,
+            "brake_assist",
+        )
+    return DemoCommandResolution(command.clipped(), False, "passthrough")
 
 
 class DemoSafetyCage:
@@ -73,9 +109,23 @@ class DemoSafetyCage:
             control_sink_healthy=control_sink_healthy,
             manual_override_active=manual_override_active,
         )
-        if failure is not None:
+        bootstrap_allowed = failure is not None and self._bootstrap_allowed(
+            failure=failure,
+            frame=frame,
+            matched=matched,
+            telemetry_state=telemetry_state,
+            matcher_diagnostics=matcher_diagnostics,
+            graph_source=graph_source,
+            alignment_mode=alignment_mode,
+            control_sink_healthy=control_sink_healthy,
+            manual_override_active=manual_override_active,
+        )
+        if failure is not None and not bootstrap_allowed:
             self._qualifying_frames = 0
             return DemoCageDecision(False, failure, False, self._qualifying_frames)
+        if bootstrap_allowed:
+            self._qualifying_frames = 0
+            return DemoCageDecision(True, "bootstrap", False, self._qualifying_frames)
 
         self._qualifying_frames += 1
         if self._qualifying_frames < max(1, self.config.arm_consecutive_frames):
@@ -147,3 +197,47 @@ class DemoSafetyCage:
         if getattr(matcher_diagnostics, "direction_confidence_state", None) not in self.config.allowed_direction_confidence_states:
             return "direction_confidence_unapproved"
         return None
+
+    def _bootstrap_allowed(
+        self,
+        *,
+        failure: str,
+        frame: TelemetryFrame | None,
+        matched: MatchedEdge | None,
+        telemetry_state,
+        matcher_diagnostics,
+        graph_source: str,
+        alignment_mode: str,
+        control_sink_healthy: bool,
+        manual_override_active: bool,
+    ) -> bool:
+        if self.config.bootstrap_throttle <= 0.0 or self.config.bootstrap_max_speed_mps <= 0.0:
+            return False
+        if failure not in {"heading_source_unapproved", "anchor_heading_unlocked", "progress_out_of_bounds"}:
+            return False
+        if frame is None or frame.paused or frame.speed_mps > self.config.bootstrap_max_speed_mps:
+            return False
+        if not control_sink_healthy or manual_override_active:
+            return False
+        if graph_source != self.config.approved_graph_source:
+            return False
+        if alignment_mode != self.config.approved_alignment_mode:
+            return False
+        if matched is None or matched.edge_id not in self.config.approved_edge_ids:
+            return False
+        if matched.travel_direction not in self.config.allowed_travel_directions:
+            return False
+        if matched.confidence < self.config.min_match_confidence:
+            return False
+        if matched.cross_track_error_m > self.config.max_cross_track_error_m:
+            return False
+        if int(getattr(matcher_diagnostics, "candidate_count", 0)) > self.config.max_graph_candidate_count:
+            return False
+        nearest_edge_distance_m = getattr(matcher_diagnostics, "nearest_edge_distance_m", None)
+        if nearest_edge_distance_m is None or float(nearest_edge_distance_m) > self.config.max_nearest_edge_distance_m:
+            return False
+        if getattr(matcher_diagnostics, "failure_reason", None):
+            return False
+        if bool(getattr(telemetry_state, "discontinuity_detected", False)):
+            return False
+        return True

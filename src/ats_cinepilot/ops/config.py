@@ -102,13 +102,26 @@ def validate_runtime_config(cfg: dict[str, Any], mode: str = "shadow") -> list[s
         issues.append(f"hud.preset_path does not exist: {hud_preset_path}")
 
     control_sink = cfg_get(cfg, "control.sink", "noop")
-    if control_sink == "module" and mode.lower() == "active":
+    if control_sink in {"module", "hybrid"} and mode.lower() == "active":
         if not cfg_get(cfg, "control.module_name"):
-            issues.append("control.module_name is required when control.sink=module in active mode")
+            issues.append(
+                f"control.module_name is required when control.sink={control_sink} in active mode"
+            )
         if not cfg_get(cfg, "control.class_name"):
-            issues.append("control.class_name is required when control.sink=module in active mode")
+            issues.append(
+                f"control.class_name is required when control.sink={control_sink} in active mode"
+            )
         for search_path in cfg_get(cfg, "control.module_search_paths", []):
             if not Path(search_path).exists():
                 issues.append(f"control.module_search_paths entry does not exist: {search_path}")
+    if control_sink in {"keyboard", "hybrid"} and mode.lower() == "active":
+        for dotted in (
+            "control.keyboard.steer_left_key",
+            "control.keyboard.steer_right_key",
+            "control.keyboard.throttle_key",
+            "control.keyboard.brake_key",
+        ):
+            if not cfg_get(cfg, dotted):
+                issues.append(f"{dotted} is required when control.sink={control_sink} in active mode")
 
     return issues

@@ -15,10 +15,15 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
     if telemetry_source == "shared_memory_v2":
         telemetry_line += f" mapping={cfg_get(cfg, 'telemetry.shared_memory_name', 'SCSTelemetrySharedv2_ats')}"
 
+    if control_sink == "hybrid":
+        control_sink_display = "hybrid(module steering + keyboard throttle/brake)"
+    else:
+        control_sink_display = control_sink
+
     lines = [
         f"startup mode={mode.lower()} live={'yes' if telemetry_source != 'replay' else 'no'}",
         telemetry_line,
-        f"control_sink={control_sink}",
+        f"control_sink={control_sink_display}",
         f"route_provider={route_provider}",
         f"hud_capture={hud_capture}",
         f"graph_source={graph_source}",
@@ -60,8 +65,8 @@ def validate_startup_requirements(cfg: dict, mode: str) -> list[str]:
     if mode_lower == "active" and cfg_get(cfg, "demo.enabled", False):
         if telemetry_source != "shared_memory_v2":
             issues.append("demo active mode requires telemetry.source=shared_memory_v2.")
-        if control_sink != "module":
-            issues.append("demo active mode requires control.sink=module.")
+        if control_sink not in {"module", "keyboard", "hybrid"}:
+            issues.append("demo active mode requires control.sink=module, keyboard, or hybrid.")
         if not cfg_get(cfg, "demo.approved_graph_source", ""):
             issues.append("demo.approved_graph_source is required when demo.enabled=true.")
         if not cfg_get(cfg, "demo.approved_alignment_mode", ""):

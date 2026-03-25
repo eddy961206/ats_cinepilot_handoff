@@ -5,19 +5,17 @@ game:
   mode: "active_demo"
 
 control:
-  sink: "module"
-  module_name: "scscontroller"
-  class_name: "SCSController"
+  sink: "hybrid"
   module_search_paths:
     - "../_ext/scs-sdk-controller"
-  plugin_dll_name: "scs_sdk_controller.dll"
-  shared_memory_name: "Local\\SCSControls"
-  field_mapping:
-    steering: "steering"
-    throttle: "aforward"
-    brake: "abackward"
-    left_blinker: "lblinker"
-    right_blinker: "rblinker"
+  keyboard:
+    steer_left_key: "a"
+    steer_right_key: "d"
+    throttle_key: "w"
+    brake_key: "s"
+    steering_threshold: 0.01
+    throttle_threshold: 0.08
+    brake_threshold: 0.08
 
 truck:
   preferred_speed_cap_mps: 4.0
@@ -37,6 +35,7 @@ control_tuning:
   kd: 0.04
   brake_bias: 0.05
   deadband_mps: 0.15
+  integral_limit: 20.0
 
 safety:
   min_map_match_confidence: 0.99
@@ -58,7 +57,7 @@ demo:
   allowed_direction_confidence_states: ["confident"]
   allowed_pose_sources: ["authoritative_absolute"]
   allowed_heading_sources: ["absolute_position_delta", "absolute_position_hold"]
-  min_progress_m: 5.0
+  min_progress_m: 0.0
   max_progress_m: 80.0
   min_match_confidence: 0.99
   min_route_confidence: 0.69
@@ -70,6 +69,9 @@ demo:
   require_anchor_locked: true
   require_no_discontinuity: true
   arm_consecutive_frames: 20
+  bootstrap_max_speed_mps: 0.6
+  bootstrap_throttle: 0.35
+  allow_speed_cap_brake_assist: true
 
 logging:
   log_jsonl_path: "data/logs/demo_active_corridor.jsonl"

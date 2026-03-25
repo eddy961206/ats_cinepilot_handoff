@@ -8,6 +8,11 @@ from typing import Optional
 
 from ats_cinepilot.bridge.capture_dxcam import DXcamCaptureSource, DXcamConfig
 from ats_cinepilot.bridge.capture_mss import MSSCaptureSource, MSSConfig
+from ats_cinepilot.bridge.hybrid_controls import (
+    HybridControlConfig,
+    ModuleSteeringKeyboardLongitudinalSink,
+)
+from ats_cinepilot.bridge.keyboard_controls import KeyboardControlConfig, KeyboardControlSink
 from ats_cinepilot.bridge.manual_override import AlwaysFalseOverrideSource, FileFlagOverrideSource
 from ats_cinepilot.bridge.scs_controls import (
     DynamicModuleControlSink,
@@ -27,7 +32,14 @@ from ats_cinepilot.control.longitudinal_pid import PidConfig, PidSpeedController
 from ats_cinepilot.control.mixer import build_vehicle_command
 from ats_cinepilot.domain.enums import DisengageReason, Mode
 from ats_cinepilot.domain.state_machine import AutopilotStateMachine
-from ats_cinepilot.domain.types import MatchedEdge, PreviewPath, RouteHint, SafetyDecision, SpeedTarget, TelemetryFrame
+from ats_cinepilot.domain.types import (
+    MatchedEdge,
+    PreviewPath,
+    RouteHint,
+    SafetyDecision,
+    SpeedTarget,
+    TelemetryFrame,
+)
 from ats_cinepilot.map.cache import load_graph_cache
 from ats_cinepilot.map.matcher import MatcherConfig, SimplePoseMatcher
 from ats_cinepilot.map.spatial_index import SimpleSpatialIndex
@@ -40,7 +52,7 @@ from ats_cinepilot.planner.speed_profile import SpeedPlanner, SpeedPlannerConfig
 from ats_cinepilot.route.fusion import build_effective_route_hint
 from ats_cinepilot.route.providers import HudRouteProvider, HudRouteProviderConfig, NullRouteProvider
 from ats_cinepilot.safety.arbiter import RuleBasedSafetyPolicy, SafetyConfig
-from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoSafetyCage
+from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoSafetyCage, resolve_demo_command
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +165,40 @@ class AutopilotApp:
             control_sink = NoopControlSink()
         elif control_sink_name == "recording":
             control_sink = RecordingControlSink(cfg_get(cfg, "logging.log_jsonl_path"))
+        elif control_sink_name == "keyboard":
+            control_sink = KeyboardControlSink(
+                KeyboardControlConfig(
+                    steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                    steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                    throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                    brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                    steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                    throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                    brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                )
+            )
+        elif control_sink_name == "hybrid":
+            control_sink = ModuleSteeringKeyboardLongitudinalSink(
+                HybridControlConfig(
+                    module=ModuleControlConfig(
+                        module_name=cfg_get(cfg, "control.module_name"),
+                        class_name=cfg_get(cfg, "control.class_name"),
+                        apply_method=cfg_get(cfg, "control.apply_method", ""),
+                        neutral_method=cfg_get(cfg, "control.neutral_method", ""),
+                        field_mapping=dict(cfg_get(cfg, "control.field_mapping", {})),
+                        module_search_paths=list(cfg_get(cfg, "control.module_search_paths", [])),
+                    ),
+                    keyboard=KeyboardControlConfig(
+                        steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                        steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                        throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                        brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                        steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                        throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                        brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                    ),
+                )
+            )
         else:
             control_sink = DynamicModuleControlSink(
                 ModuleControlConfig(
@@ -241,6 +287,7 @@ class AutopilotApp:
                 kd=float(cfg_get(cfg, "control_tuning.kd", 0.08)),
                 brake_bias=float(cfg_get(cfg, "control_tuning.brake_bias", 0.12)),
                 deadband_mps=float(cfg_get(cfg, "control_tuning.deadband_mps", 0.35)),
+                integral_limit=float(cfg_get(cfg, "control_tuning.integral_limit", 20.0)),
             )
         )
         safety_policy = RuleBasedSafetyPolicy(
@@ -306,6 +353,11 @@ class AutopilotApp:
                     require_anchor_locked=bool(cfg_get(cfg, "demo.require_anchor_locked", True)),
                     require_no_discontinuity=bool(cfg_get(cfg, "demo.require_no_discontinuity", True)),
                     arm_consecutive_frames=int(cfg_get(cfg, "demo.arm_consecutive_frames", 10)),
+                    bootstrap_max_speed_mps=float(cfg_get(cfg, "demo.bootstrap_max_speed_mps", 0.0)),
+                    bootstrap_throttle=float(cfg_get(cfg, "demo.bootstrap_throttle", 0.0)),
+                    allow_speed_cap_brake_assist=bool(
+                        cfg_get(cfg, "demo.allow_speed_cap_brake_assist", True)
+                    ),
                 )
             )
 
@@ -402,6 +454,8 @@ class AutopilotApp:
         telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
         matcher_diagnostics = self.ctx.matcher.last_diagnostics
         demo_status = None
+        demo_command = command
+        demo_brake_assist_active = False
         if self.ctx.demo_cage is not None:
             demo_status = self.ctx.demo_cage.evaluate(
                 frame=frame,
@@ -415,12 +469,15 @@ class AutopilotApp:
                 control_sink_healthy=self.ctx.control_sink.is_healthy(),
                 manual_override_active=manual_override_active,
             )
+            demo_resolution = resolve_demo_command(command, demo_status, self.ctx.demo_cage.config)
+            demo_command = demo_resolution.command
+            demo_brake_assist_active = demo_resolution.apply_when_disengaged
             if decision.allow_control and not demo_status.allow_control:
                 decision = SafetyDecision(False, reason=DisengageReason.DEMO_GUARD)
 
         try:
-            if self.mode == "active" and decision.allow_control:
-                self.ctx.control_sink.apply(command)
+            if self.mode == "active" and (decision.allow_control or demo_brake_assist_active):
+                self.ctx.control_sink.apply(demo_command)
             else:
                 self.ctx.control_sink.neutralize()
         except Exception:
@@ -447,7 +504,7 @@ class AutopilotApp:
                 "hint": asdict(raw_hint) if raw_hint else None,
                 "effective_hint": asdict(effective_hint) if effective_hint else None,
                 "target": asdict(target) if target else None,
-                "command": asdict(command),
+                "command": asdict(demo_command),
                 "decision": {
                     "allow_control": decision.allow_control,
                     "reason": getattr(decision.reason, "name", str(decision.reason)),
@@ -494,6 +551,8 @@ class AutopilotApp:
                     "demo_guard_reason": demo_status.reason if demo_status is not None else None,
                     "demo_armed": demo_status.armed if demo_status is not None else None,
                     "demo_qualifying_frames": demo_status.qualifying_frames if demo_status is not None else None,
+                    "demo_command_mode": demo_resolution.mode if demo_status is not None else None,
+                    "demo_brake_assist_active": demo_brake_assist_active,
                     "manual_override_active": manual_override_active,
                 },
             })

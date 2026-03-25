@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from ats_cinepilot.domain.types import MatchedEdge, Pose2D, PreviewPath, PreviewPoint, RouteHint, TelemetryFrame
-from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoSafetyCage
+from ats_cinepilot.domain.types import MatchedEdge, Pose2D, PreviewPath, PreviewPoint, RouteHint, TelemetryFrame, VehicleCommand
+from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoCageDecision, DemoSafetyCage, resolve_demo_command
 
 
 def _frame(speed_mps: float = 3.0) -> TelemetryFrame:
@@ -162,3 +162,96 @@ def test_demo_safety_cage_resets_when_progress_leaves_corridor():
     assert rearm.allow_control is False
     assert rearm.reason == "arming"
     assert rearm.qualifying_frames == 1
+
+
+def test_demo_safety_cage_allows_bootstrap_when_stationary_heading_is_unknown():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="toy_ab_demo",
+            approved_graph_source="toy_graph",
+            approved_alignment_mode="anchored_local_toy_graph",
+            approved_edge_ids=("ab",),
+            min_progress_m=5.0,
+            max_progress_m=80.0,
+            bootstrap_max_speed_mps=0.5,
+            bootstrap_throttle=0.35,
+        )
+    )
+
+    bootstrap = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(progress_m=10.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(heading_source="unknown", anchor_heading_locked=False),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="toy_graph",
+        alignment_mode="anchored_local_toy_graph",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert bootstrap.allow_control is True
+    assert bootstrap.armed is False
+    assert bootstrap.reason == "bootstrap"
+
+
+def test_demo_safety_cage_bootstrap_does_not_ignore_corridor_mismatch():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="toy_ab_demo",
+            approved_graph_source="toy_graph",
+            approved_alignment_mode="anchored_local_toy_graph",
+            approved_edge_ids=("ab",),
+            min_progress_m=5.0,
+            max_progress_m=80.0,
+            bootstrap_max_speed_mps=0.5,
+            bootstrap_throttle=0.35,
+        )
+    )
+
+    blocked = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="bc", progress_m=10.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="toy_graph",
+        alignment_mode="anchored_local_toy_graph",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert blocked.allow_control is False
+    assert blocked.reason == "outside_corridor_edge"
+
+
+def test_resolve_demo_command_keeps_bootstrap_throttle_until_heading_locks():
+    resolved = resolve_demo_command(
+        VehicleCommand(steering=0.3, throttle=0.8, brake=0.0),
+        DemoCageDecision(allow_control=True, reason="bootstrap", armed=False, qualifying_frames=0),
+        DemoCageConfig(enabled=True, bootstrap_throttle=0.35),
+    )
+
+    assert resolved.command.steering == 0.0
+    assert resolved.command.throttle == 0.35
+    assert resolved.command.brake == 0.0
+    assert resolved.apply_when_disengaged is False
+    assert resolved.mode == "bootstrap"
+
+
+def test_resolve_demo_command_allows_brake_only_assist_on_speed_cap_guard():
+    resolved = resolve_demo_command(
+        VehicleCommand(steering=0.2, throttle=0.0, brake=0.7),
+        DemoCageDecision(allow_control=False, reason="speed_cap_exceeded", armed=False, qualifying_frames=0),
+        DemoCageConfig(enabled=True),
+    )
+
+    assert resolved.command.steering == 0.0
+    assert resolved.command.throttle == 0.0
+    assert resolved.command.brake == 0.7
+    assert resolved.apply_when_disengaged is True
+    assert resolved.mode == "brake_assist"

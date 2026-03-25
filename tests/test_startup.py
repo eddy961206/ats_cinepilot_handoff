@@ -87,3 +87,41 @@ def test_validate_startup_requirements_rejects_incomplete_active_demo():
     issues = validate_startup_requirements(cfg, mode="active")
 
     assert "demo.approved_edge_ids must not be empty when demo.enabled=true." in issues
+
+
+def test_validate_startup_requirements_allows_keyboard_demo_sink():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2"},
+        "control": {"sink": "keyboard"},
+        "map": {"source_name": "toy_graph", "alignment_mode": "anchored_local_toy_graph"},
+        "demo": {
+            "enabled": True,
+            "corridor_name": "toy_ab_demo",
+            "approved_graph_source": "toy_graph",
+            "approved_alignment_mode": "anchored_local_toy_graph",
+            "approved_edge_ids": ["ab"],
+        },
+    }
+
+    issues = validate_startup_requirements(cfg, mode="active")
+
+    assert issues == []
+
+
+def test_validate_startup_requirements_allows_hybrid_demo_sink():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2"},
+        "control": {"sink": "hybrid"},
+        "map": {"source_name": "toy_graph", "alignment_mode": "anchored_local_toy_graph"},
+        "demo": {
+            "enabled": True,
+            "corridor_name": "toy_ab_demo",
+            "approved_graph_source": "toy_graph",
+            "approved_alignment_mode": "anchored_local_toy_graph",
+            "approved_edge_ids": ["ab"],
+        },
+    }
+
+    issues = validate_startup_requirements(cfg, mode="active")
+
+    assert issues == []

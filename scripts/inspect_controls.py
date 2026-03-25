@@ -3,9 +3,15 @@ from __future__ import annotations
 import argparse
 import importlib
 import traceback
+import platform
 from pathlib import Path
 
 from ats_cinepilot.bridge.control_probe import ControlPulseRequest, run_control_pulse
+from ats_cinepilot.bridge.hybrid_controls import (
+    HybridControlConfig,
+    ModuleSteeringKeyboardLongitudinalSink,
+)
+from ats_cinepilot.bridge.keyboard_controls import KeyboardControlConfig, KeyboardControlSink
 from ats_cinepilot.bridge.live_diagnostics import (
     ControlProbeStatus,
     classify_control_probe_status,
@@ -41,9 +47,47 @@ def main() -> None:
     control_category = "unknown"
     if sink_name == "module":
         control_category = _inspect_module_target(cfg, ats_running)
+    elif sink_name == "hybrid":
+        control_category = _inspect_hybrid_target(cfg, ats_running)
+    elif sink_name == "keyboard":
+        control_category = _inspect_keyboard_target(cfg)
 
     if sink_name == "noop":
         sink = NoopControlSink()
+    elif sink_name == "keyboard":
+        sink = KeyboardControlSink(
+            KeyboardControlConfig(
+                steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+            )
+        )
+    elif sink_name == "hybrid":
+        sink = ModuleSteeringKeyboardLongitudinalSink(
+            HybridControlConfig(
+                module=ModuleControlConfig(
+                    module_name=cfg_get(cfg, "control.module_name"),
+                    class_name=cfg_get(cfg, "control.class_name"),
+                    apply_method=cfg_get(cfg, "control.apply_method", ""),
+                    neutral_method=cfg_get(cfg, "control.neutral_method", ""),
+                    field_mapping=dict(cfg_get(cfg, "control.field_mapping", {})),
+                    module_search_paths=list(cfg_get(cfg, "control.module_search_paths", [])),
+                ),
+                keyboard=KeyboardControlConfig(
+                    steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                    steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                    throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                    brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                    steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                    throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                    brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                ),
+            )
+        )
     else:
         sink = DynamicModuleControlSink(
             ModuleControlConfig(
@@ -90,6 +134,45 @@ def main() -> None:
         ),
     )
     print("control pulse completed")
+
+
+def _inspect_keyboard_target(cfg: dict) -> str:
+    print("keyboard target: W/A/S/D input injection")
+    print(
+        "keyboard mapping: "
+        f"left={cfg_get(cfg, 'control.keyboard.steer_left_key', 'a')} "
+        f"right={cfg_get(cfg, 'control.keyboard.steer_right_key', 'd')} "
+        f"throttle={cfg_get(cfg, 'control.keyboard.throttle_key', 'w')} "
+        f"brake={cfg_get(cfg, 'control.keyboard.brake_key', 's')}"
+    )
+    print(
+        "keyboard thresholds: "
+        f"steering={cfg_get(cfg, 'control.keyboard.steering_threshold', 0.15)} "
+        f"throttle={cfg_get(cfg, 'control.keyboard.throttle_threshold', 0.08)} "
+        f"brake={cfg_get(cfg, 'control.keyboard.brake_threshold', 0.08)}"
+    )
+    if platform.system() != "Windows":
+        print("control status: keyboard sink unsupported on this platform")
+        return "keyboard sink unsupported"
+    print("control status: control path ready")
+    print("  - Windows keyboard injection sink is configured.")
+    print("  - Keep the ATS window focused during live writes.")
+    return "control path ready"
+
+
+def _inspect_hybrid_target(cfg: dict, ats_running: bool) -> str:
+    print("hybrid routing:")
+    print("  - steering / blinkers -> module shared-memory control plugin")
+    print("  - throttle / brake -> Windows keyboard injection")
+    module_category = _inspect_module_target(cfg, ats_running)
+    keyboard_category = _inspect_keyboard_target(cfg)
+    if module_category == "control path ready" and keyboard_category == "control path ready":
+        print("hybrid status: control path ready")
+        return "control path ready"
+    print("hybrid status: hybrid control path incomplete")
+    print(f"  - module={module_category}")
+    print(f"  - keyboard={keyboard_category}")
+    return "hybrid control path incomplete"
 
 
 def _inspect_module_target(cfg: dict, ats_running: bool) -> str:
