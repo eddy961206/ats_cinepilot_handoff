@@ -1,0 +1,86 @@
+extends:
+  - "live_probe_ats_toy_graph.yaml"
+
+game:
+  mode: "active_demo"
+
+control:
+  sink: "hybrid"
+  module_search_paths:
+    - "../_ext/scs-sdk-controller"
+  keyboard:
+    steer_left_key: "a"
+    steer_right_key: "d"
+    throttle_key: "w"
+    brake_key: "s"
+    steering_threshold: 0.01
+    throttle_threshold: 0.08
+    brake_threshold: 0.08
+
+map:
+  cache_path: "data/maps/cache/demo_gentle_curve_graph.json"
+  source_name: "toy_gentle_curve_graph"
+  alignment_mode: "anchored_local_toy_graph"
+
+truck:
+  preferred_speed_cap_mps: 3.0
+
+planner:
+  curve_speed_floor_mps: 3.0
+  junction_speed_cap_mps: 3.0
+
+control_tuning:
+  steering_gain: 1.0
+  max_steering_cmd: 0.40
+  min_lookahead_m: 5.0
+  max_lookahead_m: 14.0
+  lookahead_speed_gain: 0.5
+  kp: 0.18
+  ki: 0.02
+  kd: 0.04
+  brake_bias: 0.05
+  deadband_mps: 0.15
+  integral_limit: 20.0
+
+safety:
+  min_map_match_confidence: 0.99
+  min_route_confidence: 0.69
+  max_cross_track_error_m: 0.18
+  max_heading_error_deg: 6.0
+  overspeed_curve_margin_kph: 1.0
+
+manual_override:
+  flag_path: "data/runtime/demo_override.flag"
+
+demo:
+  enabled: true
+  corridor_name: "toy_gentle_left_curve_low_speed"
+  approved_graph_source: "toy_gentle_curve_graph"
+  approved_alignment_mode: "anchored_local_toy_graph"
+  approved_edge_ids: ["curve_ab"]
+  allowed_travel_directions: ["forward"]
+  allowed_direction_confidence_states: ["confident"]
+  allowed_pose_sources: ["authoritative_absolute"]
+  allowed_heading_sources: ["absolute_position_delta", "absolute_position_hold"]
+  min_progress_m: 0.0
+  max_progress_m: 38.0
+  min_match_confidence: 0.99
+  min_route_confidence: 0.69
+  max_cross_track_error_m: 0.18
+  max_heading_error_deg: 6.0
+  max_nearest_edge_distance_m: 0.18
+  max_speed_mps: 3.0
+  max_graph_candidate_count: 1
+  require_anchor_locked: true
+  require_no_discontinuity: true
+  arm_consecutive_frames: 12
+  bootstrap_max_speed_mps: 0.6
+  bootstrap_throttle: 0.35
+  allow_speed_cap_brake_assist: true
+
+logging:
+  log_jsonl_path: "data/logs/demo_active_gentle_curve.jsonl"
+
+debug:
+  status_log_interval_frames: 1
+  loop_sleep_ms: 50
