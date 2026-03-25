@@ -176,3 +176,92 @@ def test_summarize_shadow_log_collects_direction_counts_and_handles_missing_fiel
         "confident": 1,
         "ambiguous": 1,
     }
+
+
+def test_summarize_shadow_log_collects_demo_command_metrics(tmp_path):
+    module = _load_summary_module()
+    log_path = tmp_path / "demo_active_curve.jsonl"
+    rows = [
+        {
+            "command": {
+                "steering": 0.00,
+                "throttle": 0.35,
+                "brake": 0.00,
+            },
+            "status": {
+                "graph_source": "toy_gentle_curve_graph",
+                "alignment_mode": "anchored_local_toy_graph",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "anchored_local",
+                "safety_decision": "NONE",
+                "heading_source": "absolute_position_delta",
+                "graph_failure": None,
+                "map_match_confidence": 1.0,
+                "route_confidence": 0.70,
+                "cross_track_error_m": 0.02,
+                "nearest_edge_distance_m": 0.02,
+                "graph_candidate_count": 1,
+                "demo_guard_reason": "bootstrap",
+            },
+        },
+        {
+            "command": {
+                "steering": 0.18,
+                "throttle": 0.28,
+                "brake": 0.00,
+            },
+            "status": {
+                "graph_source": "toy_gentle_curve_graph",
+                "alignment_mode": "anchored_local_toy_graph",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "anchored_local",
+                "safety_decision": "NONE",
+                "heading_source": "absolute_position_delta",
+                "graph_failure": None,
+                "map_match_confidence": 1.0,
+                "route_confidence": 0.70,
+                "cross_track_error_m": 0.05,
+                "nearest_edge_distance_m": 0.05,
+                "graph_candidate_count": 1,
+                "demo_guard_reason": "armed",
+            },
+        },
+        {
+            "command": {
+                "steering": 0.22,
+                "throttle": 0.00,
+                "brake": 0.31,
+            },
+            "status": {
+                "graph_source": "toy_gentle_curve_graph",
+                "alignment_mode": "anchored_local_toy_graph",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "anchored_local",
+                "safety_decision": "DEMO_GUARD",
+                "heading_source": "absolute_position_hold",
+                "graph_failure": None,
+                "map_match_confidence": 1.0,
+                "route_confidence": 0.70,
+                "cross_track_error_m": 0.08,
+                "nearest_edge_distance_m": 0.08,
+                "graph_candidate_count": 1,
+                "demo_guard_reason": "speed_cap_exceeded",
+            },
+        },
+    ]
+    log_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    summary = module.summarize_log(log_path)
+
+    assert summary["steering_abs_max"] == 0.22
+    assert summary["non_trivial_steering_count"] == 2
+    assert summary["throttle_command_count"] == 2
+    assert summary["brake_command_count"] == 1
+    assert summary["demo_guard_reason_counts"] == {
+        "bootstrap": 1,
+        "armed": 1,
+        "speed_cap_exceeded": 1,
+    }

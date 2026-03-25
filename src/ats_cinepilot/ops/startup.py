@@ -43,6 +43,7 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
                 f"demo_enabled=yes corridor={cfg_get(cfg, 'demo.corridor_name', 'unnamed')}",
                 f"demo_edge_ids={edge_ids}",
                 f"demo_max_speed_mps={cfg_get(cfg, 'demo.max_speed_mps', 0.0)}",
+                f"demo_focus_required={'yes' if control_sink == 'hybrid' else 'no'}",
                 f"manual_override_flag={cfg_get(cfg, 'manual_override.flag_path', '') or '<none>'}",
             ]
         )

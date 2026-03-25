@@ -164,3 +164,34 @@ def test_validate_startup_requirements_rejects_demo_graph_contract_mismatch():
 
     assert "demo.approved_graph_source must match map.source_name in active demo mode." in issues
     assert "demo.approved_alignment_mode must match map.alignment_mode in active demo mode." in issues
+
+
+def test_build_startup_summary_lists_gentle_curve_demo_details():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2"},
+        "control": {"sink": "hybrid"},
+        "hud": {"preset_path": ""},
+        "map": {
+            "source_name": "toy_gentle_curve_graph",
+            "alignment_mode": "anchored_local_toy_graph",
+        },
+        "manual_override": {"flag_path": "data/runtime/demo_override.flag"},
+        "demo": {
+            "enabled": True,
+            "corridor_name": "toy_gentle_left_curve_low_speed",
+            "approved_edge_ids": ["curve_ab"],
+            "max_speed_mps": 3.0,
+        },
+        "safety": {
+            "telemetry_timeout_ms": 250,
+            "min_map_match_confidence": 0.99,
+            "min_route_confidence": 0.69,
+        },
+    }
+
+    lines = build_startup_summary(cfg, mode="active")
+
+    assert any("demo_enabled=yes corridor=toy_gentle_left_curve_low_speed" in line for line in lines)
+    assert any("demo_edge_ids=curve_ab" in line for line in lines)
+    assert any("demo_max_speed_mps=3.0" in line for line in lines)
+    assert any("demo_focus_required=yes" in line for line in lines)
