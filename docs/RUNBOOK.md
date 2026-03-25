@@ -1,161 +1,218 @@
 # Runbook
 
-## 반복 사이클
+## 현재 목표
 
-1. `.\scripts\setup_venv.ps1`
-2. `ats-cinepilot check-config --config ...`
-3. `python scripts\inspect_telemetry.py --config ...`
-4. replay shadow smoke
-5. dense/coarse graph cache 준비
-6. replay A/B
-7. live shadow run
-8. 로그 요약
-9. graph fidelity가 충분해질 때까지 route source로 넘어가지 않기
+지금 이 repo의 운영 목표는 **첫 constrained live active demo 반복 재현**이야.
 
-## 현재 우선순위
+즉:
 
-### 1단계
-- live telemetry stability
-- absolute pose semantics 확인
-- dense/coarse ATS graph alignment 확인
-- matcher diagnostics 확인
+- telemetry는 live
+- control은 live
+- corridor는 하나
+- speed는 낮게
+- safety cage는 빡세게
 
-### 2단계
-- dense local graph geometry / candidate topology 개선
-- turn-heavy 재검증
-- 그래도 bottleneck이 남을 때만 route source
+general autopilot 운영 문서가 아니다.
 
-### 3단계
-- HUD route hint
-- control plugin path
-- Active Mode
+## base 상태 확인
 
-## PR Workflow
+작업 시작 전에 꼭 먼저 확인해.
 
-- 항상 `main` 기준 최신 상태를 확인해
-- 이전 PR이 아직 merge 안 됐으면 stale `main`에서 새 기능 시작하지 마
-- 항상 `codex/` 브랜치를 새로 만들어
-- 항상 PR을 열고 리뷰 가능한 diff 상태로 남겨
-- self-merge 하지 마
-- PR 본문에는 정확한 명령어와 실제 결과를 그대로 적어
+- `main`이 PR #6/#7까지 포함하는지
+- 아니라면 stale `main`에서 새 기능 시작하지 않는지
+- stacked lineage가 필요한지
 
-## dense local graph 준비
+## 현재 선택 demo path
 
-전제:
-- ATS install: `D:\Steam\steamapps\common\American Truck Simulator`
-- toolchain repo: `C:\workspaces\python_workspace\_ext\trucksim_maps_repo`
+- config: `configs/demo_active_corridor.yaml`
+- telemetry: `shared_memory_v2`
+- graph: `toy_graph`
+- alignment: `anchored_local_toy_graph`
+- approved edge: `ab`
+- sink: `hybrid`
 
-Build Tools:
+`hybrid` 의미:
+
+- steering / blinkers -> module sink
+- throttle / brake -> keyboard sink
+
+## preflight
+
+### 1. 환경
 
 ```powershell
-winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --accept-package-agreements --accept-source-agreements --override "--wait --quiet --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+.\scripts\setup_venv.ps1
 ```
 
-toolchain deps:
+### 2. config check
 
 ```powershell
-cd C:\workspaces\python_workspace\_ext\trucksim_maps_repo
-npm install
+.\.venv\Scripts\ats-cinepilot check-config --config configs\demo_active_corridor.yaml
 ```
 
-주의:
-- Windows에선 `npm install` 마지막 `parser` symlink postinstall이 `EPERM`으로 죽을 수 있다.
-- `cityhash.node`, `gdeflate.node`, `tsx`가 이미 생겼으면 dense export는 가능하다.
-- runtime export는 `scripts/export_local_dense_graph.py`가 parser output을 재사용해서 focused ATS road GeoJSON과 runtime cache를 만든다.
-
-## live telemetry probe
+### 3. telemetry probe
 
 ```powershell
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_ats_dense_local_graph.yaml --frames 3
-```
-
-상태 해석:
-- `telemetry ready`
-  - mapping visible + decode 성공
-- `ATS not running`
-  - ATS process가 꺼져 있음
-- `plugin missing`
-  - DLL이 plugin dir에 없음
-- `mapping missing`
-  - DLL은 있지만 shared memory가 안 열림
-
-## dense local graph export
-
-```powershell
-.\.venv\Scripts\python scripts\export_local_dense_graph.py --config configs\live_probe_ats_real_graph.yaml --config configs\profiles\replay_ab_straight_light_turn.yaml --parser-output-dir "data\maps\trucksim_parser\ats_local" --geojson-output-dir "data\maps\trucksim_geojson\ats_local_region" --output-cache "data\maps\cache\ats_usa_region_dense_local_geojson_8km.json" --radius-m 8000
-```
-
-확인 포인트:
-- `graph_source = trucksim_local_geojson_region`
-- `alignment_mode = ats_absolute_identity`
-- `node_count`, `edge_count`
-- `synthetic_reverse_edges = false`
-
-주의:
-- `--synthetic-reverse-edges`는 실험용이다.
-- selected path는 forward-only cache로 direction semantics를 드러내는 쪽을 택한다.
-
-## replay A/B
-
-샘플 override:
-- `configs/profiles/replay_ab_straight_light_turn.yaml`
-- `configs/profiles/replay_ab_turn_heavy.yaml`
-- `configs/profiles/replay_ab_quiet.yaml`
-
-coarse vs dense replay:
-
-```powershell
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_ats_real_graph.yaml --config configs\profiles\replay_ab_straight_light_turn.yaml --config configs\profiles\replay_ab_quiet.yaml --mode shadow
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_ats_dense_local_graph.yaml --config configs\profiles\replay_ab_straight_light_turn.yaml --config configs\profiles\replay_ab_quiet.yaml --mode shadow
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_ats_real_graph.yaml --config configs\profiles\replay_ab_turn_heavy.yaml --config configs\profiles\replay_ab_quiet.yaml --mode shadow
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_ats_dense_local_graph.yaml --config configs\profiles\replay_ab_turn_heavy.yaml --config configs\profiles\replay_ab_quiet.yaml --mode shadow
-```
-
-요약:
-
-```powershell
-.\.venv\Scripts\python scripts\summarize_shadow_log.py --input data\logs\replay_ab_straight_real_postchange_20260324.jsonl --input data\logs\replay_ab_straight_dense_postchange_20260324.jsonl --input data\logs\replay_ab_turn_real_postchange_20260324.jsonl --input data\logs\replay_ab_turn_dense_postchange_20260324.jsonl --json data\debug\dense_direction_postchange_summary.json
-```
-
-주의:
-- toy graph는 `anchored_local`
-- coarse/dense real graph는 `world_absolute`
-- 그래서 toy를 coarse/dense와 **같은 replay 입력**으로 완전히 공정 비교할 수는 없다
-- toy는 ATS-backed baseline, coarse/dense는 same-input replay로 비교한다
-
-matcher 진단에서 꼭 볼 것:
-- `selected_reason_counts`
-- `direction_confidence_state_counts`
-- `reverse_heading_rescued` 발생 수
-- reverse rescue가 생긴 프레임에 `selected_travel_direction=reverse`가 일관되게 찍히는지
-- delayed continuity gap
-  - 정의: `winner_distance - min_candidate_distance > 1m`
-
-## 현재 해석
-
-- toy graph 대비 real-graph family는 coverage가 훨씬 낫다
-- dense local graph forward-only path는 direction 문제가 있는 구간을 솔직하게 드러낸다
-- scoped reverse-heading rescue 이후 straight/light-turn dense replay는 `MATCH_LOST 150 -> 135`, `NONE 0 -> 15`로 좋아졌다
-- turn-heavy dense replay는 headline safety가 그대로라서 아직 graph fidelity 쪽 병목이 남아 있다
-- delayed continuity gap은 `28 -> 6`으로 줄었다
-- 그래서 다음 세션은 route source보다 dense local graph geometry / candidate topology가 우선이다
-
-## live shadow run
-
-```powershell
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_ats_dense_local_graph.yaml --mode shadow --steps 300
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\demo_active_corridor.yaml --frames 3 --require-ready
 ```
 
 성공 기준:
-- step loop가 예외 없이 돈다
-- `fresh_ms`가 stale로 치솟지 않는다
-- `graph_failures=None` 유지
-- `nearest_edge_distance_m`가 합리적인 범위에 머문다
-- `selected_reason` / `direction_confidence_state`가 비정상적으로 한 패턴에만 고착되지 않는다
 
-## 다음 액션 판단
+- `telemetry status: telemetry ready`
+- `SCSTelemetrySharedv2_ats` visible
+- decode OK
 
-- dense local graph가 straight만 좋아지고 turn-heavy는 그대로면:
-  - route source로 가지 말고 dense local graph geometry / candidate topology부터 다시 파기
-- dense local graph geometry를 더 다듬은 뒤에도 turn-heavy가 남으면:
-  - 그때 matcher continuity/heading cost나 yaw 후보를 다시 검토
+### 4. control probe
+
+```powershell
+.\.venv\Scripts\python scripts\inspect_controls.py --config configs\demo_active_corridor.yaml --dry-run --require-ready
+```
+
+성공 기준:
+
+- module path ready
+- keyboard path ready
+- hybrid status ready
+
+## live micro validation
+
+### steering path
+
+module steering pulse는 visual confirmation으로 확인한다.
+
+예:
+
+```powershell
+.\.venv\Scripts\python scripts\inspect_controls.py --config configs\demo_active_corridor.yaml --live-write --pulse-axis steering --value 1.0 --hold-ms 3000
+```
+
+확인 포인트:
+
+- 핸들이나 앞바퀴가 실제로 움직이는지
+
+### longitudinal path
+
+keyboard longitudinal은 telemetry로 확인 가능하다.
+
+이번 세션의 실제 증거:
+
+- hybrid micro-probe에서 speed `3.611 -> 13.777`
+- brake에서 `15.340 -> 0.000`
+
+## constrained active demo
+
+실행:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_corridor.ps1 -ShadowSteps 20 -ActiveSteps 80 -ActiveCountdownSeconds 8
+```
+
+helper가 하는 일:
+
+1. override clear
+2. config check
+3. telemetry probe
+4. control probe
+5. shadow qualification
+6. countdown
+7. active run
+
+## operator preconditions
+
+반드시 맞춰.
+
+- ATS running
+- drivable state
+- forward gear
+- parking brake 해제
+- approved corridor 근처
+- ATS 창 foreground 유지
+- operator 손은 즉시 takeover 가능
+
+## manual disengage
+
+아래 중 하나면 된다.
+
+1. 브레이크 / 조향 직접 takeover
+2. `Esc`
+3. `Ctrl+C`
+4. 다른 터미널에서:
+
+```powershell
+scripts\demo_override_on.ps1
+```
+
+해제:
+
+```powershell
+scripts\demo_override_off.ps1
+```
+
+## 이번 세션의 실제 active 결과
+
+short active demo attempt:
+
+```text
+bootstrap: 0.00 -> 2.54 m/s
+armed: 2.51 -> 4.10 m/s
+speed_cap_exceeded 후 brake assist: 5.34 -> 1.95 m/s
+```
+
+해석:
+
+- throttle 적용됨
+- brake assist 적용됨
+- steering path는 같은 세션에서 module pulse로 별도 visual 확인됨
+- active corridor 자체는 직선 toy segment라 active run 중 steering magnitude는 작았다
+
+## failure 해석
+
+### telemetry ready가 아님
+
+- ATS not running
+- plugin missing
+- mapping missing
+- unsupported layout
+
+### control path ready가 아님
+
+- plugin DLL missing
+- Python module missing
+- field mapping mismatch
+- keyboard sink platform issue
+
+### active run이 안 움직임
+
+먼저 이 셋부터 봐.
+
+1. ATS 창이 foreground였는지
+2. drivable state였는지
+3. override flag가 켜져 있지 않은지
+
+참고:
+
+- hidden child process에서 keyboard input은 흔들릴 수 있었다
+- 같은 프로세스 direct run이나 human-run PowerShell helper는 더 안정적이었다
+
+### module throttle / brake가 안 먹음
+
+현재 결론:
+
+- 아직 미해결
+- `aforward`, `activate`, `drive`, `parkingbrake=false` 조합을 telemetry와 같이 찍어도 속도 상승이 없었다
+- 그래서 demo는 module longitudinal에 기대지 않는다
+
+## 지금 하지 말 것
+
+- complex intersection demo
+- broad route following
+- Active Mode 일반화
+- CV-first 확장
+- wheel actuation
+
+## 다음 세션 추천
+
+1. human-run 재현성 강화
+2. focus preflight 보강
+3. module longitudinal isolate
+4. 그 다음에만 corridor를 조금 넓히기

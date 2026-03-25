@@ -163,11 +163,27 @@ result:
   - `direction_confidence={ambiguous: 10, confident: 156, reverse_heading_rescued: 34}`
   - delayed continuity gap(`winner_distance - min_candidate_distance > 1m`) = `6`
 
+## active demo와의 관계
+
+이번 세션 constrained active demo도 같은 telemetry 계약 위에서 돌았다.
+
+- telemetry source: `shared_memory_v2`
+- pose frame: `anchored_local`
+- graph source: `toy_graph`
+- approved edge: `ab`
+
+중요:
+
+- active demo 성공은 telemetry 계약이 live control loop에도 충분히 안정적이라는 뜻이다
+- 하지만 이건 toy corridor 기반 constrained demo에 한정된다
+- dense local graph / route-aware autonomy까지 풀렸다는 뜻은 아니다
+
 ## 현재 결론
 
 - `SCSTelemetrySharedv2_ats` direct reader는 실제로 동작한다.
 - `285/293/301` absolute pose 계약은 유지한다.
+- 이 계약은 constrained live active demo에도 문제 없이 쓰였다.
 - dense local geojson graph는 forward-only 계약에서 direction semantics bottleneck을 더 분명하게 드러냈다.
 - scoped reverse-heading rescue 이후 straight/light-turn은 pure heading mismatch가 많이 줄었다.
 - turn-heavy에선 internal candidate-selection diagnostics는 좋아졌지만 headline safety는 그대로다.
-- 그래서 다음 dominant bottleneck은 route source나 direct yaw uncertainty가 아니라 **dense local graph geometry / candidate topology fidelity**다.
+- 그래서 corridor-generalization 관점의 다음 dominant bottleneck은 route source나 direct yaw uncertainty가 아니라 **dense local graph geometry / candidate topology fidelity**다.
