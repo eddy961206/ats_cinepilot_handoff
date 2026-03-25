@@ -65,12 +65,20 @@ def validate_startup_requirements(cfg: dict, mode: str) -> list[str]:
     if mode_lower == "active" and cfg_get(cfg, "demo.enabled", False):
         if telemetry_source != "shared_memory_v2":
             issues.append("demo active mode requires telemetry.source=shared_memory_v2.")
-        if control_sink not in {"module", "keyboard", "hybrid"}:
-            issues.append("demo active mode requires control.sink=module, keyboard, or hybrid.")
-        if not cfg_get(cfg, "demo.approved_graph_source", ""):
+        if control_sink != "hybrid":
+            issues.append("demo active mode requires control.sink=hybrid.")
+        approved_graph_source = cfg_get(cfg, "demo.approved_graph_source", "")
+        approved_alignment_mode = cfg_get(cfg, "demo.approved_alignment_mode", "")
+        map_source_name = cfg_get(cfg, "map.source_name", "")
+        map_alignment_mode = cfg_get(cfg, "map.alignment_mode", "")
+        if not approved_graph_source:
             issues.append("demo.approved_graph_source is required when demo.enabled=true.")
-        if not cfg_get(cfg, "demo.approved_alignment_mode", ""):
+        elif approved_graph_source != map_source_name:
+            issues.append("demo.approved_graph_source must match map.source_name in active demo mode.")
+        if not approved_alignment_mode:
             issues.append("demo.approved_alignment_mode is required when demo.enabled=true.")
+        elif approved_alignment_mode != map_alignment_mode:
+            issues.append("demo.approved_alignment_mode must match map.alignment_mode in active demo mode.")
         if not cfg_get(cfg, "demo.approved_edge_ids", []):
             issues.append("demo.approved_edge_ids must not be empty when demo.enabled=true.")
 

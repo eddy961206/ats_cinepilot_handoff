@@ -146,7 +146,6 @@ class DemoSafetyCage:
         control_sink_healthy: bool,
         manual_override_active: bool,
     ) -> str | None:
-        _ = path
         if not control_sink_healthy:
             return "control_sink_unhealthy"
         if manual_override_active:
@@ -171,6 +170,8 @@ class DemoSafetyCage:
             return "discontinuity_active"
         if matched is None:
             return "match_missing"
+        if path is None:
+            return "preview_path_missing"
         if matched.edge_id not in self.config.approved_edge_ids:
             return "outside_corridor_edge"
         if matched.travel_direction not in self.config.allowed_travel_directions:

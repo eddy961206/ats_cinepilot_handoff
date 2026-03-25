@@ -229,6 +229,36 @@ def test_demo_safety_cage_bootstrap_does_not_ignore_corridor_mismatch():
     assert blocked.reason == "outside_corridor_edge"
 
 
+def test_demo_safety_cage_rejects_missing_preview_path():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="toy_ab_demo",
+            approved_graph_source="toy_graph",
+            approved_alignment_mode="anchored_local_toy_graph",
+            approved_edge_ids=("ab",),
+            min_progress_m=5.0,
+            max_progress_m=80.0,
+        )
+    )
+
+    blocked = cage.evaluate(
+        frame=_frame(),
+        matched=_matched(progress_m=10.0),
+        hint=_hint(),
+        path=None,
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="toy_graph",
+        alignment_mode="anchored_local_toy_graph",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert blocked.allow_control is False
+    assert blocked.reason == "preview_path_missing"
+
+
 def test_resolve_demo_command_keeps_bootstrap_throttle_until_heading_locks():
     resolved = resolve_demo_command(
         VehicleCommand(steering=0.3, throttle=0.8, brake=0.0),

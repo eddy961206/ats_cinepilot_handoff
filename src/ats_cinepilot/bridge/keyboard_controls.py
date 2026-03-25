@@ -123,17 +123,24 @@ class KeyboardControlSink:
         if not self._healthy or self._emitter is None:
             raise RuntimeError("keyboard control sink not connected")
         desired_keys = self._desired_keys(command.clipped())
-        for key in sorted(self._pressed_keys - desired_keys):
-            self._emitter.set_key_state(key, False)
-        for key in sorted(desired_keys - self._pressed_keys):
-            self._emitter.set_key_state(key, True)
-        self._pressed_keys = desired_keys
+        current_pressed = set(self._pressed_keys)
+        try:
+            for key in sorted(current_pressed - desired_keys):
+                self._emitter.set_key_state(key, False)
+                current_pressed.discard(key)
+            for key in sorted(desired_keys - current_pressed):
+                self._emitter.set_key_state(key, True)
+                current_pressed.add(key)
+            self._pressed_keys = current_pressed
+        except Exception:
+            self._release_best_effort(self._all_control_keys() | current_pressed | desired_keys)
+            self._pressed_keys.clear()
+            raise
 
     def neutralize(self) -> None:
         if self._emitter is None:
             return
-        for key in sorted(self._pressed_keys):
-            self._emitter.set_key_state(key, False)
+        self._release_best_effort(self._pressed_keys)
         self._pressed_keys.clear()
 
     def _desired_keys(self, command: VehicleCommand) -> set[str]:
@@ -148,3 +155,18 @@ class KeyboardControlSink:
         elif command.steering <= -self.config.steering_threshold:
             desired.add(self.config.steer_right_key.lower())
         return desired
+
+    def _all_control_keys(self) -> set[str]:
+        return {
+            self.config.steer_left_key.lower(),
+            self.config.steer_right_key.lower(),
+            self.config.throttle_key.lower(),
+            self.config.brake_key.lower(),
+        }
+
+    def _release_best_effort(self, keys: set[str]) -> None:
+        for key in sorted(keys):
+            try:
+                self._emitter.set_key_state(key, False)
+            except Exception:
+                continue
