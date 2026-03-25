@@ -37,3 +37,53 @@ def test_validate_startup_requirements_blocks_probe_only_live_source():
     issues = validate_startup_requirements(cfg, mode="shadow")
 
     assert issues == []
+
+
+def test_build_startup_summary_lists_demo_cage_details():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2"},
+        "control": {"sink": "module"},
+        "hud": {"preset_path": ""},
+        "map": {
+            "source_name": "toy_graph",
+            "alignment_mode": "anchored_local_toy_graph",
+        },
+        "manual_override": {"flag_path": "data/runtime/demo_override.flag"},
+        "demo": {
+            "enabled": True,
+            "corridor_name": "toy_ab_demo",
+            "approved_edge_ids": ["ab"],
+            "max_speed_mps": 4.0,
+        },
+        "safety": {
+            "telemetry_timeout_ms": 250,
+            "min_map_match_confidence": 0.6,
+            "min_route_confidence": 0.55,
+        },
+    }
+
+    lines = build_startup_summary(cfg, mode="active")
+
+    assert any("demo_enabled=yes corridor=toy_ab_demo" in line for line in lines)
+    assert any("demo_edge_ids=ab" in line for line in lines)
+    assert any("demo_max_speed_mps=4.0" in line for line in lines)
+    assert any("manual_override_flag=data/runtime/demo_override.flag" in line for line in lines)
+
+
+def test_validate_startup_requirements_rejects_incomplete_active_demo():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2"},
+        "control": {"sink": "module", "module_name": "scscontroller", "class_name": "SCSController"},
+        "map": {"source_name": "toy_graph", "alignment_mode": "anchored_local_toy_graph"},
+        "demo": {
+            "enabled": True,
+            "corridor_name": "toy_ab_demo",
+            "approved_graph_source": "toy_graph",
+            "approved_alignment_mode": "anchored_local_toy_graph",
+            "approved_edge_ids": [],
+        },
+    }
+
+    issues = validate_startup_requirements(cfg, mode="active")
+
+    assert "demo.approved_edge_ids must not be empty when demo.enabled=true." in issues

@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import traceback
 from pathlib import Path
 
+from ats_cinepilot.bridge.control_probe import ControlPulseRequest, run_control_pulse
 from ats_cinepilot.bridge.live_diagnostics import (
     ControlProbeStatus,
     classify_control_probe_status,
     find_ats_game_dir,
     process_is_running,
 )
-from ats_cinepilot.bridge.scs_controls import DynamicModuleControlSink, ModuleControlConfig, NoopControlSink
+from ats_cinepilot.bridge.scs_controls import (
+    DynamicModuleControlSink,
+    ModuleControlConfig,
+    NoopControlSink,
+    control_module_import_scope,
+)
 from ats_cinepilot.bridge.windows_probes import probe_named_mapping
-from ats_cinepilot.domain.types import VehicleCommand
 from ats_cinepilot.ops.config import cfg_get, resolve_config
 
 
@@ -20,6 +26,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", action="append", required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--require-ready", action="store_true")
+    parser.add_argument("--live-write", action="store_true")
+    parser.add_argument("--pulse-axis", choices=["steering", "throttle", "brake"], default="")
+    parser.add_argument("--value", type=float, default=0.0)
+    parser.add_argument("--hold-ms", type=int, default=200)
     args = parser.parse_args()
 
     cfg = resolve_config(args.config)
@@ -27,8 +38,9 @@ def main() -> None:
     ats_running = process_is_running(["amtrucks.exe", "amtrucks"])
     print(f"control sink: {sink_name}")
     print(f"ats running: {'yes' if ats_running else 'no'}")
+    control_category = "unknown"
     if sink_name == "module":
-        _inspect_module_target(cfg, ats_running)
+        control_category = _inspect_module_target(cfg, ats_running)
 
     if sink_name == "noop":
         sink = NoopControlSink()
@@ -40,23 +52,51 @@ def main() -> None:
                 apply_method=cfg_get(cfg, "control.apply_method", ""),
                 neutral_method=cfg_get(cfg, "control.neutral_method", ""),
                 field_mapping=dict(cfg_get(cfg, "control.field_mapping", {})),
+                module_search_paths=list(cfg_get(cfg, "control.module_search_paths", [])),
             )
         )
 
+    try:
+        sink.connect()
+        print("control connect: OK")
+    except Exception as exc:
+        print(f"control connect: FAILED ({exc})")
+        print(traceback.format_exc(limit=1).strip())
+        raise SystemExit(1) from exc
+
+    if args.require_ready and control_category != "control path ready":
+        print("control readiness check failed")
+        raise SystemExit(3)
+
     if args.dry_run:
-        print("dry-run requested; skipping apply/neutralize")
+        print("dry-run requested; connect only, skipping live writes")
         return
+    if not args.pulse_axis:
+        print("no pulse requested; connect-only probe completed")
+        return
+    if not args.live_write:
+        print("refusing live write without --live-write")
+        raise SystemExit(2)
 
-    sink.connect()
-    sink.apply(VehicleCommand(steering=0.1, throttle=0.0, brake=0.0))
-    sink.neutralize()
-    print("control sink smoke test completed")
+    print(
+        f"live pulse: axis={args.pulse_axis} value={args.value:.3f} hold_ms={args.hold_ms}"
+    )
+    run_control_pulse(
+        sink,
+        ControlPulseRequest(
+            axis=args.pulse_axis,
+            value=args.value,
+            hold_s=max(0.0, args.hold_ms / 1000.0),
+        ),
+    )
+    print("control pulse completed")
 
 
-def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
+def _inspect_module_target(cfg: dict, ats_running: bool) -> str:
     module_name = cfg_get(cfg, "control.module_name")
     class_name = cfg_get(cfg, "control.class_name")
     field_mapping = dict(cfg_get(cfg, "control.field_mapping", {}))
+    module_search_paths = list(cfg_get(cfg, "control.module_search_paths", []))
     plugin_dll_name = cfg_get(cfg, "control.plugin_dll_name", "scs_sdk_controller.dll")
     game_dir = find_ats_game_dir()
     plugin_path = None
@@ -66,9 +106,12 @@ def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
         plugin_present = plugin_path.exists()
 
     print(f"module target: {module_name}.{class_name}")
+    if module_search_paths:
+        print(f"module search paths: {module_search_paths}")
     try:
-        module = importlib.import_module(module_name)
-        klass = getattr(module, class_name)
+        with control_module_import_scope(module_search_paths):
+            module = importlib.import_module(module_name)
+            klass = getattr(module, class_name)
         python_module_present = True
     except Exception as exc:
         print(f"module import: FAILED ({exc})")
@@ -86,7 +129,7 @@ def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
             mapping_error=probe.error,
             plugin_path=plugin_path,
         )
-        return
+        return "Python control module missing"
 
     print("module import: OK")
     annotations = dict(getattr(klass, "__annotations__", {}))
@@ -125,7 +168,7 @@ def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
 
     print(f"expected control plugin DLL: {plugin_path if plugin_path else plugin_dll_name}")
     print(f"plugin DLL present: {'yes' if plugin_present else 'no'}")
-    _print_control_category(
+    return _print_control_category(
         ats_running=ats_running,
         plugin_present=plugin_present,
         python_module_present=python_module_present,
@@ -147,7 +190,7 @@ def _print_control_category(
     mapping_present: bool,
     mapping_error: str | None,
     plugin_path: Path | None,
-) -> None:
+) -> str:
     category, details = classify_control_probe_status(
         ControlProbeStatus(
             ats_running=ats_running,
@@ -164,6 +207,7 @@ def _print_control_category(
         print(f"  - expected plugin DLL missing: {plugin_path}")
     for detail in details:
         print(f"  - {detail}")
+    return category
 
 
 if __name__ == "__main__":

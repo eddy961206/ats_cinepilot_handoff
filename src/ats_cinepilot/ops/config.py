@@ -107,5 +107,8 @@ def validate_runtime_config(cfg: dict[str, Any], mode: str = "shadow") -> list[s
             issues.append("control.module_name is required when control.sink=module in active mode")
         if not cfg_get(cfg, "control.class_name"):
             issues.append("control.class_name is required when control.sink=module in active mode")
+        for search_path in cfg_get(cfg, "control.module_search_paths", []):
+            if not Path(search_path).exists():
+                issues.append(f"control.module_search_paths entry does not exist: {search_path}")
 
     return issues
