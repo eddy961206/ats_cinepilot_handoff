@@ -169,7 +169,10 @@ def test_validate_startup_requirements_rejects_demo_graph_contract_mismatch():
 def test_build_startup_summary_lists_gentle_curve_demo_details():
     cfg = {
         "telemetry": {"source": "shared_memory_v2"},
-        "control": {"sink": "hybrid"},
+        "control": {
+            "sink": "hybrid",
+            "keyboard": {"longitudinal_pwm_period_s": 0.25},
+        },
         "hud": {"preset_path": ""},
         "map": {
             "source_name": "toy_gentle_curve_graph",
@@ -178,7 +181,7 @@ def test_build_startup_summary_lists_gentle_curve_demo_details():
         "manual_override": {"flag_path": "data/runtime/demo_override.flag"},
         "demo": {
             "enabled": True,
-            "corridor_name": "toy_gentle_left_curve_low_speed",
+            "corridor_name": "toy_gentle_curve_low_speed",
             "approved_edge_ids": ["curve_ab"],
             "max_speed_mps": 3.0,
         },
@@ -191,7 +194,8 @@ def test_build_startup_summary_lists_gentle_curve_demo_details():
 
     lines = build_startup_summary(cfg, mode="active")
 
-    assert any("demo_enabled=yes corridor=toy_gentle_left_curve_low_speed" in line for line in lines)
+    assert any("demo_enabled=yes corridor=toy_gentle_curve_low_speed" in line for line in lines)
     assert any("demo_edge_ids=curve_ab" in line for line in lines)
     assert any("demo_max_speed_mps=3.0" in line for line in lines)
     assert any("demo_focus_required=yes" in line for line in lines)
+    assert any("keyboard_longitudinal_pwm_s=0.25" in line for line in lines)

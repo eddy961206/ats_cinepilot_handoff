@@ -73,8 +73,8 @@
       "speed_limit_mps": 12.0,
       "road_class": "highway",
       "metadata": {
-        "corridor_name": "toy_gentle_left_curve_low_speed",
-        "shape": "gentle_left_curve"
+        "corridor_name": "toy_gentle_curve_low_speed",
+        "shape": "gentle_curve"
       }
     }
   ],

@@ -64,6 +64,9 @@ def main() -> None:
                 steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
                 throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
                 brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                longitudinal_pwm_period_s=float(
+                    cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
+                ),
             )
         )
     elif sink_name == "hybrid":
@@ -85,6 +88,9 @@ def main() -> None:
                     steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
                     throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
                     brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                    longitudinal_pwm_period_s=float(
+                        cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
+                    ),
                 ),
             )
         )
@@ -151,6 +157,11 @@ def _inspect_keyboard_target(cfg: dict) -> str:
         f"throttle={cfg_get(cfg, 'control.keyboard.throttle_threshold', 0.08)} "
         f"brake={cfg_get(cfg, 'control.keyboard.brake_threshold', 0.08)}"
     )
+    pwm_period_s = float(cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0))
+    if pwm_period_s > 0.0:
+        print(f"keyboard longitudinal pwm: enabled period_s={pwm_period_s}")
+    else:
+        print("keyboard longitudinal pwm: disabled")
     if platform.system() != "Windows":
         print("control status: keyboard sink unsupported on this platform")
         return "keyboard sink unsupported"

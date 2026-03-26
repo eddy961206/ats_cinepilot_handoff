@@ -48,8 +48,9 @@ def test_demo_active_gentle_curve_profile_resolves_expected_demo_contract():
     assert cfg_get(cfg, "map.cache_path") == "data/maps/cache/demo_gentle_curve_graph.json"
     assert cfg_get(cfg, "map.source_name") == "toy_gentle_curve_graph"
     assert cfg_get(cfg, "demo.enabled") is True
-    assert cfg_get(cfg, "demo.corridor_name") == "toy_gentle_left_curve_low_speed"
+    assert cfg_get(cfg, "demo.corridor_name") == "toy_gentle_curve_low_speed"
     assert cfg_get(cfg, "demo.approved_edge_ids") == ["curve_ab"]
     assert cfg_get(cfg, "demo.max_speed_mps") == 3.0
     assert cfg_get(cfg, "truck.preferred_speed_cap_mps") == 3.0
+    assert cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s") == 0.25
     assert cfg_get(cfg, "logging.log_jsonl_path") == "data/logs/demo_active_gentle_curve.jsonl"

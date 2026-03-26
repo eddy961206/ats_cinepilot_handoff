@@ -175,6 +175,9 @@ class AutopilotApp:
                     steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
                     throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
                     brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                    longitudinal_pwm_period_s=float(
+                        cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
+                    ),
                 )
             )
         elif control_sink_name == "hybrid":
@@ -196,6 +199,9 @@ class AutopilotApp:
                         steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
                         throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
                         brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                        longitudinal_pwm_period_s=float(
+                            cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
+                        ),
                     ),
                 )
             )

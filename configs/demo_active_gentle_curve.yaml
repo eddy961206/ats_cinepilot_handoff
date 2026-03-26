@@ -16,6 +16,7 @@ control:
     steering_threshold: 0.01
     throttle_threshold: 0.08
     brake_threshold: 0.08
+    longitudinal_pwm_period_s: 0.25
 
 map:
   cache_path: "data/maps/cache/demo_gentle_curve_graph.json"
@@ -54,7 +55,7 @@ manual_override:
 
 demo:
   enabled: true
-  corridor_name: "toy_gentle_left_curve_low_speed"
+  corridor_name: "toy_gentle_curve_low_speed"
   approved_graph_source: "toy_gentle_curve_graph"
   approved_alignment_mode: "anchored_local_toy_graph"
   approved_edge_ids: ["curve_ab"]
