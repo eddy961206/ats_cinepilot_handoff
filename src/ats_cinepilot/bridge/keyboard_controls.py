@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import platform
+import time
 from dataclasses import dataclass
 from ctypes import wintypes
 
@@ -62,6 +63,7 @@ class KeyboardControlConfig:
     steering_threshold: float = 0.15
     throttle_threshold: float = 0.08
     brake_threshold: float = 0.08
+    longitudinal_pwm_period_s: float = 0.0
 
 
 class WindowsKeyboardEmitter:
@@ -103,9 +105,10 @@ class WindowsKeyboardEmitter:
 
 
 class KeyboardControlSink:
-    def __init__(self, config: KeyboardControlConfig, *, emitter=None) -> None:
+    def __init__(self, config: KeyboardControlConfig, *, emitter=None, clock=None) -> None:
         self.config = config
         self._emitter = emitter
+        self._clock = clock or time.monotonic
         self._healthy = False
         self._pressed_keys: set[str] = set()
 
@@ -146,15 +149,27 @@ class KeyboardControlSink:
     def _desired_keys(self, command: VehicleCommand) -> set[str]:
         desired: set[str] = set()
         if command.brake >= self.config.brake_threshold:
-            desired.add(self.config.brake_key.lower())
+            if self._longitudinal_key_active(command.brake):
+                desired.add(self.config.brake_key.lower())
         elif command.throttle >= self.config.throttle_threshold:
-            desired.add(self.config.throttle_key.lower())
+            if self._longitudinal_key_active(command.throttle):
+                desired.add(self.config.throttle_key.lower())
 
         if command.steering >= self.config.steering_threshold:
             desired.add(self.config.steer_left_key.lower())
         elif command.steering <= -self.config.steering_threshold:
             desired.add(self.config.steer_right_key.lower())
         return desired
+
+    def _longitudinal_key_active(self, magnitude: float) -> bool:
+        period_s = max(0.0, self.config.longitudinal_pwm_period_s)
+        if period_s <= 0.0:
+            return True
+        duty = max(0.0, min(1.0, magnitude))
+        if duty <= 0.0:
+            return False
+        phase_s = self._clock() % period_s
+        return phase_s < (duty * period_s)
 
     def _all_control_keys(self) -> set[str]:
         return {

@@ -38,11 +38,14 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
 
     if cfg_get(cfg, "demo.enabled", False):
         edge_ids = ",".join(cfg_get(cfg, "demo.approved_edge_ids", [])) or "<none>"
+        keyboard_pwm_s = cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
         lines.extend(
             [
                 f"demo_enabled=yes corridor={cfg_get(cfg, 'demo.corridor_name', 'unnamed')}",
                 f"demo_edge_ids={edge_ids}",
                 f"demo_max_speed_mps={cfg_get(cfg, 'demo.max_speed_mps', 0.0)}",
+                f"demo_focus_required={'yes' if control_sink == 'hybrid' else 'no'}",
+                f"keyboard_longitudinal_pwm_s={keyboard_pwm_s}",
                 f"manual_override_flag={cfg_get(cfg, 'manual_override.flag_path', '') or '<none>'}",
             ]
         )

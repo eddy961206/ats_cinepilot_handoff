@@ -21,6 +21,14 @@ class _FailingEmitter(_FakeEmitter):
             raise RuntimeError("injected failure")
 
 
+class _FakeClock:
+    def __init__(self, now_s: float = 0.0) -> None:
+        self.now_s = now_s
+
+    def __call__(self) -> float:
+        return self.now_s
+
+
 def test_keyboard_control_sink_presses_expected_keys_for_command():
     emitter = _FakeEmitter()
     sink = KeyboardControlSink(
@@ -89,3 +97,24 @@ def test_keyboard_control_sink_releases_all_keys_when_transition_fails():
         ("s", False),
         ("w", False),
     ]
+
+
+def test_keyboard_control_sink_pulses_longitudinal_key_when_pwm_enabled():
+    emitter = _FakeEmitter()
+    clock = _FakeClock(0.20)
+    sink = KeyboardControlSink(
+        KeyboardControlConfig(
+            throttle_threshold=0.1,
+            brake_threshold=0.1,
+            longitudinal_pwm_period_s=1.0,
+        ),
+        emitter=emitter,
+        clock=clock,
+    )
+
+    sink.connect()
+    sink.apply(VehicleCommand(steering=0.0, throttle=0.3, brake=0.0))
+    clock.now_s = 0.60
+    sink.apply(VehicleCommand(steering=0.0, throttle=0.3, brake=0.0))
+
+    assert emitter.events == [("w", True), ("w", False)]
