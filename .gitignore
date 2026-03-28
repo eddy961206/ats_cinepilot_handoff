@@ -18,3 +18,5 @@ data/maps/trucksim_graph/
 data/maps/trucksim_geojson/
 data/runtime/
 data/maps/cache/*.runtime.json
+data/artifacts/
+data/models/

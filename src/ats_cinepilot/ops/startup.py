@@ -8,6 +8,7 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
     pose_frame_mode = cfg_get(cfg, "telemetry.pose_frame_mode", "unknown")
     control_sink = cfg_get(cfg, "control.sink", "noop")
     hud_preset_path = cfg_get(cfg, "hud.preset_path", "")
+    cv_enabled = bool(cfg_get(cfg, "cv.enabled", False))
     route_provider = "hud" if hud_preset_path else "none"
     hud_capture = "enabled" if hud_preset_path else "disabled"
     graph_source = cfg_get(cfg, "map.source_name", "graph_cache")
@@ -52,6 +53,30 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
                 f"demo_focus_required={'yes' if control_sink == 'hybrid' else 'no'}",
                 f"keyboard_longitudinal_pwm_s={keyboard_pwm_s}",
                 f"manual_override_flag={cfg_get(cfg, 'manual_override.flag_path', '') or '<none>'}",
+            ]
+        )
+
+    if cv_enabled:
+        lines.extend(
+            [
+                (
+                    "cv_enabled=yes "
+                    f"lane={'yes' if cfg_get(cfg, 'cv.lane.enabled', True) else 'no'} "
+                    f"vehicles={'yes' if cfg_get(cfg, 'cv.vehicles.enabled', True) else 'no'} "
+                    f"barrier={'yes' if cfg_get(cfg, 'cv.barrier.enabled', False) else 'no'}"
+                ),
+                (
+                    "cv_artifacts "
+                    f"show_window={'yes' if cfg_get(cfg, 'cv.show_window', False) else 'no'} "
+                    f"save_video={'yes' if cfg_get(cfg, 'cv.save_video', True) else 'no'} "
+                    f"save_frames={'yes' if cfg_get(cfg, 'cv.save_frames', False) else 'no'}"
+                ),
+                (
+                    "cv_guard "
+                    f"enabled={'yes' if cfg_get(cfg, 'cv.guard.enabled', False) else 'no'} "
+                    f"lane_guard={'yes' if cfg_get(cfg, 'cv.guard.enable_lane_guard', False) else 'no'} "
+                    f"lead_guard={'yes' if cfg_get(cfg, 'cv.guard.enable_lead_vehicle_guard', True) else 'no'}"
+                ),
             ]
         )
 
@@ -102,5 +127,9 @@ def validate_startup_requirements(cfg: dict, mode: str) -> list[str]:
             issues.append("demo.contract_path is required when demo.approved_edge_sequence is set.")
         if cfg_get(cfg, "demo.approved_edge_sequence", []) and not cfg_get(cfg, "demo.completion_edge_id", ""):
             issues.append("demo.completion_edge_id is required when demo.approved_edge_sequence is set.")
+
+    if bool(cfg_get(cfg, "cv.enabled", False)):
+        if mode_lower == "active" and control_sink == "hybrid" and bool(cfg_get(cfg, "cv.show_window", False)):
+            issues.append("cv.show_window must be false in active mode to avoid stealing ATS focus.")
 
     return issues
