@@ -2,14 +2,15 @@
 
 ## 현재 목표
 
-지금 운영 목표는 **첫 gentle-curve constrained live active demo 반복 재현**이야.
+지금 운영 목표는 **first curated denser-corridor constrained live active demo 반복 재현**이야.
 
 즉:
 
 - telemetry는 live
 - control은 live
 - corridor는 하나
-- 곡률은 아주 완만하게
+- graph는 dense-local source에서 뽑은 curated chain
+- run 시작 때 corridor를 현재 truck 위치에 맞춰 runtime fit
 - speed는 낮게
 - safety cage는 빡세게
 
@@ -19,9 +20,9 @@ general autopilot 운영 문서가 아니다.
 
 작업 시작 전에 먼저 확인해.
 
-- `main`이 PR #6 / #7 / #8 lineage까지 포함하는지
-- 아니라면 stale `main`에서 새 작업 시작하지 않는지
-- 필요한 경우 `codex/real-ats-world-graph-alignment` lineage를 base로 쓰는지
+- `main`이 consolidation PR `#10` 이후 상태인지
+- `main@880cfa5e17da5a9aca8ad304ed350b35dee72021` 이후에서 작업하는지
+- stale branch에서 새 feature를 시작하지 않는지
 
 ## 현재 선택 demo path
 
@@ -34,19 +35,21 @@ general autopilot 운영 문서가 아니다.
 
 - config: `configs/demo_active_gentle_curve.yaml`
 - helper: `scripts/run_demo_active_gentle_curve.ps1`
-- graph: `toy_gentle_curve_graph`
-- alignment: `anchored_local_toy_graph`
-- approved edge: `curve_ab`
-- speed cap: `3.0 m/s`
 
-### hybrid sink 의미
+### dense curated corridor demo
+
+- base config: `configs/demo_active_dense_corridor.yaml`
+- base contract: `configs/corridors/demo_dense_curated_corridor.yaml`
+- helper: `scripts/run_demo_active_dense_corridor.ps1`
+- runtime overlay: `data/runtime/demo_dense_curated_corridor.runtime.yaml`
+- runtime graph: `data/maps/cache/demo_dense_curated_corridor.runtime.json`
+
+## hybrid sink 의미
 
 - steering / blinkers -> module sink
 - throttle / brake -> keyboard sink
 
-gentle-curve demo에선 keyboard longitudinal PWM을 쓴다.
-
-- `control.keyboard.longitudinal_pwm_period_s=0.25`
+dense demo도 이 hybrid path를 그대로 쓴다.
 
 ## preflight
 
@@ -59,33 +62,25 @@ gentle-curve demo에선 keyboard longitudinal PWM을 쓴다.
 ### 2. config check
 
 ```powershell
-.\.venv\Scripts\ats-cinepilot check-config --config configs\demo_active_gentle_curve.yaml
+.\.venv\Scripts\ats-cinepilot check-config --config configs\demo_active_dense_corridor.yaml
 ```
 
 ### 3. telemetry probe
 
 ```powershell
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\demo_active_gentle_curve.yaml --frames 3 --require-ready
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\demo_active_dense_corridor.yaml --frames 3 --require-ready
+```
+
+### 4. control probe
+
+```powershell
+.\.venv\Scripts\python scripts\inspect_controls.py --config configs\demo_active_dense_corridor.yaml --dry-run --require-ready
 ```
 
 성공 기준:
 
 - `telemetry status: telemetry ready`
-- `SCSTelemetrySharedv2_ats` visible
-- decode OK
-
-### 4. control probe
-
-```powershell
-.\.venv\Scripts\python scripts\inspect_controls.py --config configs\demo_active_gentle_curve.yaml --dry-run --require-ready
-```
-
-성공 기준:
-
-- module path ready
-- keyboard path ready
-- hybrid status ready
-- `keyboard longitudinal pwm: enabled period_s=0.25`
+- `hybrid status: control path ready`
 
 ## operator preconditions
 
@@ -96,57 +91,68 @@ gentle-curve demo에선 keyboard longitudinal PWM을 쓴다.
 - engine on
 - forward gear
 - parking brake 해제
-- selected gentle curve 초입
+- verified freeway corridor chain 위
 - ATS 창 foreground 유지
 - operator 손은 즉시 takeover 가능
 
-## straight baseline 재현
+## 현재 dense corridor 의미
 
-필요할 때 baseline으로 먼저 확인해.
+이 demo는 “아무 dense road나” 가는 게 아니야.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_corridor.ps1 -ShadowSteps 20 -ActiveSteps 80 -ActiveCountdownSeconds 8
-```
+- checked-in source chain은 고정이다
+- helper가 run 시작 전에 현재 truck 위치를 그 chain에 fit해서 runtime translation을 만든다
+- 즉 같은 freeway chain 위에만 놓여 있으면 exact start 좌표를 수동으로 맞출 필요는 없다
 
-## gentle-curve active demo
+## dense curated active demo
 
 실행:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_gentle_curve.ps1 -ShadowSteps 25 -ActiveSteps 120 -ActiveCountdownSeconds 8
+powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_dense_corridor.ps1 -ShadowSteps 12 -ActiveSteps 140 -ActiveCountdownSeconds 3
 ```
 
 helper가 하는 일:
 
 1. override clear
-2. config check
-3. telemetry probe
-4. control probe
-5. shadow qualification
-6. countdown
-7. active run
-8. log summary 출력
+2. telemetry probe
+3. stop preflight
+4. runtime corridor fit
+5. runtime graph export
+6. config check
+7. control probe
+8. shadow qualification
+9. stop preflight
+10. countdown
+11. active run
+12. log summary 출력
 
-## 현재 실제 gentle-curve 결과
+## 현재 실제 dense result
 
-이번 세션의 verified run:
+verified run:
 
 ```text
-steps=145
-safety={NONE: 111, MATCH_LOST: 9, DEMO_GUARD: 24, ROUTE_CONFIDENCE_LOW: 1}
-first_MATCH_LOST=92
-steering_abs_max=0.209
-non_trivial_steering_count=32
-throttle_command_count=126
-brake_command_count=18
-demo_guard_reasons={bootstrap: 91, heading_source_unapproved: 4, arming: 11, armed: 20, speed_cap_exceeded: 19}
+steps=152
+safety={MATCH_LOST: 31, ROUTE_CONFIDENCE_LOW: 4, DEMO_GUARD: 25, NONE: 92}
+first_MATCH_LOST=1
+first_ROUTE_CONFIDENCE_LOW=32
+match=[0.717, 1.000]
+route=[0.487, 0.700]
+cte_max=0.030
+near=[0.000, 0.030]
+cand=[1, 1]
+steering_abs_max=0.300
+non_trivial_steering_count=35
+throttle_command_count=31
+brake_command_count=121
+demo_guard_reasons={bootstrap: 31, arming: 16, speed_cap_exceeded: 13, armed: 92}
 ```
 
 해석:
 
-- 곡선 구간에서 non-zero steering이 실제로 발생했다
+- dense curated corridor에서도 steering이 실제로 걸렸다
 - throttle / brake도 같은 run 안에서 실제로 적용됐다
-- 다만 `speed_cap_exceeded`는 아직 주요 disengage 원인이다
+- review fix 이후에도 runtime fit이 `dense_seg_04` 단일 edge corridor로 trim된 상태에서 candidate count는 계속 `1`
+- `safety=NONE`이 `92` step 유지돼 demo milestone로는 충분하다
 
 ## manual disengage
 
@@ -181,43 +187,35 @@ scripts\demo_override_off.ps1
 - plugin DLL missing
 - Python module missing
 - field mapping mismatch
-- keyboard sink platform issue
+- keyboard sink focus / platform issue
 
-### active run이 안 움직임
+### dense helper가 바로 끊김
 
-먼저 이 셋부터 봐.
+먼저 이 넷부터 봐.
 
-1. ATS 창이 foreground였는지
-2. drivable state였는지
-3. override flag가 켜져 있지 않은지
+1. truck가 checked-in dense corridor source chain 위였는지
+2. ATS 창이 foreground였는지
+3. vehicle stop preflight가 실제로 끝났는지
+4. override flag가 켜져 있지 않은지
 
-### curve demo가 바로 끊김
-
-먼저 이 네 개부터 봐.
-
-1. starting position이 `curve_ab` 초입이 맞는지
-2. speed가 already too high였는지
-3. heading source가 아직 `unknown` / `velocity_direction` 단계인지
-4. ATS focus가 유지됐는지
-
-### module throttle / brake가 안 먹음
+### dense demo에서 brake assist가 많음
 
 현재 결론:
 
-- 아직 미해결
-- demo는 module longitudinal에 기대지 않는다
+- 아직 demo-only longitudinal shaping이 거칠다
+- module longitudinal에 기대지 않는다
 
 ## 지금 하지 말 것
 
+- general route-following
 - complex intersection demo
-- broad route following
 - dense-local general active driving
 - CV-first 확장
 - wheel actuation
 
 ## 다음 세션 추천
 
-1. gentle-curve demo 반복 재현성 고정
+1. dense curated corridor demo 반복 재현성 고정
 2. demo-only longitudinal shaping 추가 보정
-3. 그 다음에만 curated denser corridor 1개 검토
-4. route-following이나 general active는 아직 미루기
+3. curated multi-edge corridor 1개로 확장
+4. route-aware demo는 아직 미루기

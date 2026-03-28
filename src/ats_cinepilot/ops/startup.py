@@ -5,6 +5,7 @@ from ats_cinepilot.ops.config import cfg_get
 
 def build_startup_summary(cfg: dict, mode: str) -> list[str]:
     telemetry_source = cfg_get(cfg, "telemetry.source", "json_http")
+    pose_frame_mode = cfg_get(cfg, "telemetry.pose_frame_mode", "unknown")
     control_sink = cfg_get(cfg, "control.sink", "noop")
     hud_preset_path = cfg_get(cfg, "hud.preset_path", "")
     route_provider = "hud" if hud_preset_path else "none"
@@ -23,6 +24,7 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
     lines = [
         f"startup mode={mode.lower()} live={'yes' if telemetry_source != 'replay' else 'no'}",
         telemetry_line,
+        f"telemetry_pose_frame={pose_frame_mode}",
         f"control_sink={control_sink_display}",
         f"route_provider={route_provider}",
         f"hud_capture={hud_capture}",
@@ -38,11 +40,14 @@ def build_startup_summary(cfg: dict, mode: str) -> list[str]:
 
     if cfg_get(cfg, "demo.enabled", False):
         edge_ids = ",".join(cfg_get(cfg, "demo.approved_edge_ids", [])) or "<none>"
+        edge_sequence = " -> ".join(cfg_get(cfg, "demo.approved_edge_sequence", [])) or "<none>"
         keyboard_pwm_s = cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
         lines.extend(
             [
                 f"demo_enabled=yes corridor={cfg_get(cfg, 'demo.corridor_name', 'unnamed')}",
                 f"demo_edge_ids={edge_ids}",
+                f"demo_edge_sequence={edge_sequence}",
+                f"demo_contract_path={cfg_get(cfg, 'demo.contract_path', '') or '<none>'}",
                 f"demo_max_speed_mps={cfg_get(cfg, 'demo.max_speed_mps', 0.0)}",
                 f"demo_focus_required={'yes' if control_sink == 'hybrid' else 'no'}",
                 f"keyboard_longitudinal_pwm_s={keyboard_pwm_s}",
@@ -82,7 +87,20 @@ def validate_startup_requirements(cfg: dict, mode: str) -> list[str]:
             issues.append("demo.approved_alignment_mode is required when demo.enabled=true.")
         elif approved_alignment_mode != map_alignment_mode:
             issues.append("demo.approved_alignment_mode must match map.alignment_mode in active demo mode.")
+        pose_frame_mode = cfg_get(cfg, "telemetry.pose_frame_mode", "")
+        if map_alignment_mode == "ats_absolute_identity" and pose_frame_mode != "world_absolute":
+            issues.append(
+                "demo active mode with map.alignment_mode=ats_absolute_identity "
+                "requires telemetry.pose_frame_mode=world_absolute."
+            )
         if not cfg_get(cfg, "demo.approved_edge_ids", []):
             issues.append("demo.approved_edge_ids must not be empty when demo.enabled=true.")
+        contract_path = cfg_get(cfg, "demo.contract_path", "")
+        if contract_path and not __import__("pathlib").Path(contract_path).exists():
+            issues.append("demo.contract_path must exist when set in active demo mode.")
+        if cfg_get(cfg, "demo.approved_edge_sequence", []) and not contract_path:
+            issues.append("demo.contract_path is required when demo.approved_edge_sequence is set.")
+        if cfg_get(cfg, "demo.approved_edge_sequence", []) and not cfg_get(cfg, "demo.completion_edge_id", ""):
+            issues.append("demo.completion_edge_id is required when demo.approved_edge_sequence is set.")
 
     return issues

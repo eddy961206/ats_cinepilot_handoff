@@ -257,6 +257,12 @@ class SharedMemoryV2Decoder:
                 yaw_rad=pose_yaw_rad,
             ),
         )
+        anchor_heading_locked = self._anchor_heading_rad is not None
+        anchor_heading_rad = self._anchor_heading_rad
+        if self.config.pose_frame_mode == "world_absolute":
+            anchor_heading_locked = heading_source in {"absolute_position_delta", "absolute_position_hold"}
+            if anchor_heading_locked:
+                anchor_heading_rad = heading_rad
         self.last_state = SharedMemoryV2State(
             game_tag=game_tag,
             state_code=state_code,
@@ -276,8 +282,8 @@ class SharedMemoryV2Decoder:
             pose_frame=pose_frame,
             heading_source=heading_source,
             absolute_heading_rad=absolute_heading_rad,
-            anchor_heading_rad=self._anchor_heading_rad,
-            anchor_heading_locked=self._anchor_heading_rad is not None,
+            anchor_heading_rad=anchor_heading_rad,
+            anchor_heading_locked=anchor_heading_locked,
             discontinuity_detected=discontinuity_detected,
             discontinuity_distance_m=discontinuity_distance_m,
             anchor_reset_count=self._anchor_reset_count,

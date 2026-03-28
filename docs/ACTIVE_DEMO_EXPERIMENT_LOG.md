@@ -188,3 +188,68 @@
   - the runtime corridor should stay direction-neutral in labels and docs until left/right semantics are explicitly calibrated
   - this run is still a valid demo success because the tracked edge stayed singular and the safety envelope held far longer
   - no steering-sign flip should be merged from this observation alone
+
+## 2026-03-28 Dense Curated Corridor
+
+### Base
+
+- base branch after consolidation: `main@880cfa5e17da5a9aca8ad304ed350b35dee72021`
+- working branch: `codex/dense-curated-active-demo`
+
+### Goal
+
+- toy gentle-curve demo를 유지하면서, first curated denser-corridor active demo를 만든다.
+
+### Initial Dense Attempt Diagnosis
+
+- old dense contract는 exact start placement 의존이 너무 강했다
+- current ATS 위치가 base corridor와 어긋나면 `heading_source_unapproved` / `progress_out_of_bounds` / `MATCH_LOST`만 반복됐다
+- control path 자체는 microprobe로 분리 확인했다
+  - throttle-only pulse: speed ramp 실제 확인
+  - steering+throttle pulse: speed ramp + heading lock 실제 확인
+
+### New Dense Strategy
+
+- dense-local source graph는 유지
+- 대신 run 시작 때:
+  - vehicle stop preflight
+  - live pose read
+  - source chain trim
+  - corridor-local translation fit
+  - runtime graph export
+- 즉 dense demo는 fixed one-chain + runtime translated graph를 쓴다
+
+### Key Changes
+
+- `scripts/fit_demo_dense_corridor.py`
+- `scripts/ensure_demo_stop.py`
+- `scripts/run_demo_active_dense_corridor.ps1`
+- `configs/corridors/demo_dense_curated_corridor.yaml`
+- demo cage start-window priming 추가
+
+### Dense Active Verified Run
+
+- command:
+  - `powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_dense_corridor.ps1 -ShadowSteps 12 -ActiveSteps 140 -ActiveCountdownSeconds 3`
+- summary:
+  - `steps=152`
+  - `safety={MATCH_LOST: 31, ROUTE_CONFIDENCE_LOW: 4, DEMO_GUARD: 25, NONE: 92}`
+  - `first_MATCH_LOST=1`
+  - `first_ROUTE_CONFIDENCE_LOW=32`
+  - `match=[0.717, 1.000]`
+  - `route=[0.487, 0.700]`
+  - `cte_max=0.030`
+  - `near=[0.000, 0.030]`
+  - `cand=[1, 1]`
+  - `steering_abs_max=0.300`
+  - `non_trivial_steering_count=35`
+  - `throttle_command_count=31`
+  - `brake_command_count=121`
+  - `demo_guard_reasons={bootstrap: 31, arming: 16, speed_cap_exceeded: 13, armed: 92}`
+
+### Interpretation
+
+- dense curated corridor에서도 real steering / throttle / brake가 같은 run 안에서 실제로 들어갔다
+- review fix 이후에도 runtime fit이 `dense_seg_04` 단일 edge corridor로 trim된 상태에서 candidate count는 `1`로 고정됐다
+- `safety=NONE`이 `92` step 유지돼서 demo milestone로는 충분하다
+- 남은 주병목은 route source가 아니라 demo-only longitudinal shaping이다

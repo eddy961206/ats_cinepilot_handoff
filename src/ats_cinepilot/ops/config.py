@@ -101,6 +101,10 @@ def validate_runtime_config(cfg: dict[str, Any], mode: str = "shadow") -> list[s
     if hud_preset_path and not Path(hud_preset_path).exists():
         issues.append(f"hud.preset_path does not exist: {hud_preset_path}")
 
+    demo_contract_path = cfg_get(cfg, "demo.contract_path")
+    if demo_contract_path and not Path(demo_contract_path).exists():
+        issues.append(f"demo.contract_path does not exist: {demo_contract_path}")
+
     control_sink = cfg_get(cfg, "control.sink", "noop")
     if control_sink in {"module", "hybrid"} and mode.lower() == "active":
         if not cfg_get(cfg, "control.module_name"):

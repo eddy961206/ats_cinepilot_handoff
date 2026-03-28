@@ -13,6 +13,12 @@ class DemoCageConfig:
     approved_graph_source: str = ""
     approved_alignment_mode: str = ""
     approved_edge_ids: tuple[str, ...] = ()
+    approved_edge_sequence: tuple[str, ...] = ()
+    start_edge_id: str = ""
+    start_progress_min_m: float | None = None
+    start_progress_max_m: float | None = None
+    completion_edge_id: str = ""
+    completion_max_progress_m: float | None = None
     allowed_travel_directions: tuple[str, ...] = ("forward",)
     allowed_direction_confidence_states: tuple[str, ...] = ("confident",)
     allowed_pose_sources: tuple[str, ...] = ("authoritative_absolute",)
@@ -31,6 +37,9 @@ class DemoCageConfig:
     arm_consecutive_frames: int = 10
     bootstrap_max_speed_mps: float = 0.0
     bootstrap_throttle: float = 0.0
+    bootstrap_min_match_confidence: float | None = None
+    bootstrap_max_cross_track_error_m: float | None = None
+    bootstrap_max_nearest_edge_distance_m: float | None = None
     allow_speed_cap_brake_assist: bool = True
 
 
@@ -58,8 +67,8 @@ def resolve_demo_command(
         return DemoCommandResolution(command.clipped(), False, "passthrough")
     if decision.reason == "bootstrap":
         return DemoCommandResolution(
-            VehicleCommand(0.0, config.bootstrap_throttle, 0.0).clipped(),
-            False,
+            VehicleCommand(command.steering, config.bootstrap_throttle, 0.0).clipped(),
+            True,
             "bootstrap",
         )
     if (
@@ -79,6 +88,39 @@ class DemoSafetyCage:
     def __init__(self, config: DemoCageConfig) -> None:
         self.config = config
         self._qualifying_frames = 0
+        self._current_sequence_index: int | None = None
+        self._highest_sequence_index: int | None = None
+
+    @property
+    def current_sequence_index(self) -> int | None:
+        return self._current_sequence_index
+
+    @property
+    def highest_sequence_index(self) -> int | None:
+        return self._highest_sequence_index
+
+    def diagnostics(self, matched: MatchedEdge | None) -> dict[str, int | bool | str | None]:
+        sequence = self.config.approved_edge_sequence or self.config.approved_edge_ids
+        expected_index = None
+        if sequence:
+            if self._highest_sequence_index is None:
+                expected_index = 0
+            else:
+                expected_index = min(self._highest_sequence_index + 1, len(sequence) - 1)
+        expected_edge_id = sequence[expected_index] if sequence and expected_index is not None else None
+        current_index = None
+        if matched is not None and matched.edge_id in sequence:
+            current_index = sequence.index(matched.edge_id)
+        sequence_ok = True
+        if current_index is not None and self._highest_sequence_index is not None:
+            sequence_ok = current_index >= self._highest_sequence_index
+        return {
+            "corridor_edge_index": current_index,
+            "corridor_edge_count": len(sequence),
+            "corridor_expected_edge_id": expected_edge_id,
+            "corridor_sequence_ok": sequence_ok,
+            "corridor_max_seen_index": self._highest_sequence_index,
+        }
 
     def evaluate(
         self,
@@ -97,6 +139,7 @@ class DemoSafetyCage:
         if not self.config.enabled:
             return DemoCageDecision(True, "disabled", True, self._qualifying_frames)
 
+        self._maybe_prime_sequence(matched)
         failure = self._first_failure(
             frame=frame,
             matched=matched,
@@ -124,9 +167,11 @@ class DemoSafetyCage:
             self._qualifying_frames = 0
             return DemoCageDecision(False, failure, False, self._qualifying_frames)
         if bootstrap_allowed:
+            self._record_sequence_progress(matched)
             self._qualifying_frames = 0
             return DemoCageDecision(True, "bootstrap", False, self._qualifying_frames)
 
+        self._record_sequence_progress(matched)
         self._qualifying_frames += 1
         if self._qualifying_frames < max(1, self.config.arm_consecutive_frames):
             return DemoCageDecision(False, "arming", False, self._qualifying_frames)
@@ -174,12 +219,22 @@ class DemoSafetyCage:
             return "preview_path_missing"
         if matched.edge_id not in self.config.approved_edge_ids:
             return "outside_corridor_edge"
+        sequence_failure = self._sequence_failure(matched)
+        if sequence_failure is not None:
+            return sequence_failure
         if matched.travel_direction not in self.config.allowed_travel_directions:
             return "travel_direction_unapproved"
         if self.config.min_progress_m is not None and matched.progress_m < self.config.min_progress_m:
             return "progress_out_of_bounds"
         if self.config.max_progress_m is not None and matched.progress_m > self.config.max_progress_m:
             return "progress_out_of_bounds"
+        if (
+            self.config.completion_edge_id
+            and matched.edge_id == self.config.completion_edge_id
+            and self.config.completion_max_progress_m is not None
+            and matched.progress_m >= self.config.completion_max_progress_m
+        ):
+            return "corridor_complete"
         if matched.confidence < self.config.min_match_confidence:
             return "match_confidence_low"
         if matched.cross_track_error_m > self.config.max_cross_track_error_m:
@@ -226,19 +281,103 @@ class DemoSafetyCage:
             return False
         if matched is None or matched.edge_id not in self.config.approved_edge_ids:
             return False
+        sequence_failure = self._sequence_failure(matched)
+        if sequence_failure not in {None, "corridor_complete"}:
+            return False
         if matched.travel_direction not in self.config.allowed_travel_directions:
             return False
-        if matched.confidence < self.config.min_match_confidence:
+        min_match_confidence = (
+            self.config.bootstrap_min_match_confidence
+            if self.config.bootstrap_min_match_confidence is not None
+            else self.config.min_match_confidence
+        )
+        if matched.confidence < min_match_confidence:
             return False
-        if matched.cross_track_error_m > self.config.max_cross_track_error_m:
+        max_cross_track_error_m = (
+            self.config.bootstrap_max_cross_track_error_m
+            if self.config.bootstrap_max_cross_track_error_m is not None
+            else self.config.max_cross_track_error_m
+        )
+        if matched.cross_track_error_m > max_cross_track_error_m:
             return False
         if int(getattr(matcher_diagnostics, "candidate_count", 0)) > self.config.max_graph_candidate_count:
             return False
         nearest_edge_distance_m = getattr(matcher_diagnostics, "nearest_edge_distance_m", None)
-        if nearest_edge_distance_m is None or float(nearest_edge_distance_m) > self.config.max_nearest_edge_distance_m:
+        max_nearest_edge_distance_m = (
+            self.config.bootstrap_max_nearest_edge_distance_m
+            if self.config.bootstrap_max_nearest_edge_distance_m is not None
+            else self.config.max_nearest_edge_distance_m
+        )
+        if nearest_edge_distance_m is None or float(nearest_edge_distance_m) > max_nearest_edge_distance_m:
             return False
         if getattr(matcher_diagnostics, "failure_reason", None):
             return False
         if bool(getattr(telemetry_state, "discontinuity_detected", False)):
             return False
         return True
+
+    def _sequence_failure(self, matched: MatchedEdge) -> str | None:
+        if not self.config.approved_edge_sequence:
+            self._current_sequence_index = None
+            return None
+
+        ordered = self.config.approved_edge_sequence
+        if matched.edge_id not in ordered:
+            self._current_sequence_index = None
+            return "outside_corridor_edge"
+        current_index = ordered.index(matched.edge_id)
+        self._current_sequence_index = current_index
+        start_edge_id = self.config.start_edge_id or ordered[0]
+        start_index = ordered.index(start_edge_id)
+        if self._highest_sequence_index is None:
+            if current_index != start_index:
+                return "corridor_start_edge_required"
+            if (
+                self.config.start_progress_min_m is not None
+                and matched.edge_id == start_edge_id
+                and matched.progress_m < self.config.start_progress_min_m
+            ):
+                return "corridor_start_progress_low"
+            if (
+                self.config.start_progress_max_m is not None
+                and matched.edge_id == start_edge_id
+                and matched.progress_m > self.config.start_progress_max_m
+            ):
+                return "corridor_start_progress_high"
+            return None
+        if current_index < self._highest_sequence_index:
+            return "edge_sequence_regressed"
+        if current_index > self._highest_sequence_index + 1:
+            return "edge_sequence_jump"
+        return None
+
+    def _record_sequence_progress(self, matched: MatchedEdge | None) -> None:
+        if matched is None or not self.config.approved_edge_sequence:
+            return
+        if matched.edge_id not in self.config.approved_edge_sequence:
+            return
+        current_index = self.config.approved_edge_sequence.index(matched.edge_id)
+        self._current_sequence_index = current_index
+        if self._highest_sequence_index is None or current_index > self._highest_sequence_index:
+            self._highest_sequence_index = current_index
+
+    def _maybe_prime_sequence(self, matched: MatchedEdge | None) -> None:
+        if matched is None or not self.config.approved_edge_sequence:
+            return
+        if self._highest_sequence_index is not None:
+            return
+        start_edge_id = self.config.start_edge_id or self.config.approved_edge_sequence[0]
+        if matched.edge_id != start_edge_id:
+            return
+        if (
+            self.config.start_progress_min_m is not None
+            and matched.progress_m < self.config.start_progress_min_m
+        ):
+            return
+        if (
+            self.config.start_progress_max_m is not None
+            and matched.progress_m > self.config.start_progress_max_m
+        ):
+            return
+        self._current_sequence_index = self.config.approved_edge_sequence.index(start_edge_id)
+        self._highest_sequence_index = self._current_sequence_index

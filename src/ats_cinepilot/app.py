@@ -56,6 +56,11 @@ from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoSafetyCage, resol
 
 logger = logging.getLogger(__name__)
 
+DEMO_OVERRIDEABLE_REASONS = {
+    DisengageReason.MATCH_LOST,
+    DisengageReason.ROUTE_CONFIDENCE_LOW,
+}
+
 
 def _score_breakdown_snapshot(score_breakdown: object) -> dict[str, float]:
     if not isinstance(score_breakdown, dict):
@@ -95,6 +100,30 @@ def _maybe_float(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _maybe_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _should_apply_active_control(
+    decision: SafetyDecision,
+    *,
+    demo_control_allowed: bool,
+    demo_brake_assist_active: bool,
+) -> bool:
+    if decision.allow_control:
+        return True
+    if demo_control_allowed and decision.reason in DEMO_OVERRIDEABLE_REASONS:
+        return True
+    if demo_brake_assist_active and (
+        decision.reason in DEMO_OVERRIDEABLE_REASONS or decision.reason == DisengageReason.DEMO_GUARD
+    ):
+        return True
+    return False
 
 
 @dataclass
@@ -326,6 +355,16 @@ class AutopilotApp:
                     approved_graph_source=str(cfg_get(cfg, "demo.approved_graph_source", "")),
                     approved_alignment_mode=str(cfg_get(cfg, "demo.approved_alignment_mode", "")),
                     approved_edge_ids=tuple(str(item) for item in cfg_get(cfg, "demo.approved_edge_ids", [])),
+                    approved_edge_sequence=tuple(
+                        str(item) for item in cfg_get(cfg, "demo.approved_edge_sequence", [])
+                    ),
+                    start_edge_id=str(cfg_get(cfg, "demo.start_edge_id", "")),
+                    start_progress_min_m=_maybe_float(cfg_get(cfg, "demo.start_progress_min_m")),
+                    start_progress_max_m=_maybe_float(
+                        cfg_get(cfg, "demo.start_progress_max_m", cfg_get(cfg, "demo.start_edge_max_progress_m"))
+                    ),
+                    completion_edge_id=_maybe_text(cfg_get(cfg, "demo.completion_edge_id")),
+                    completion_max_progress_m=_maybe_float(cfg_get(cfg, "demo.completion_max_progress_m")),
                     allowed_travel_directions=tuple(
                         str(item) for item in cfg_get(cfg, "demo.allowed_travel_directions", ["forward"])
                     ),
@@ -361,6 +400,13 @@ class AutopilotApp:
                     arm_consecutive_frames=int(cfg_get(cfg, "demo.arm_consecutive_frames", 10)),
                     bootstrap_max_speed_mps=float(cfg_get(cfg, "demo.bootstrap_max_speed_mps", 0.0)),
                     bootstrap_throttle=float(cfg_get(cfg, "demo.bootstrap_throttle", 0.0)),
+                    bootstrap_min_match_confidence=cfg_get(cfg, "demo.bootstrap_min_match_confidence", None),
+                    bootstrap_max_cross_track_error_m=cfg_get(cfg, "demo.bootstrap_max_cross_track_error_m", None),
+                    bootstrap_max_nearest_edge_distance_m=cfg_get(
+                        cfg,
+                        "demo.bootstrap_max_nearest_edge_distance_m",
+                        None,
+                    ),
                     allow_speed_cap_brake_assist=bool(
                         cfg_get(cfg, "demo.allow_speed_cap_brake_assist", True)
                     ),
@@ -462,6 +508,7 @@ class AutopilotApp:
         demo_status = None
         demo_command = command
         demo_brake_assist_active = False
+        demo_control_allowed = False
         if self.ctx.demo_cage is not None:
             demo_status = self.ctx.demo_cage.evaluate(
                 frame=frame,
@@ -478,11 +525,17 @@ class AutopilotApp:
             demo_resolution = resolve_demo_command(command, demo_status, self.ctx.demo_cage.config)
             demo_command = demo_resolution.command
             demo_brake_assist_active = demo_resolution.apply_when_disengaged
+            demo_control_allowed = demo_status.allow_control
             if decision.allow_control and not demo_status.allow_control:
                 decision = SafetyDecision(False, reason=DisengageReason.DEMO_GUARD)
 
         try:
-            if self.mode == "active" and (decision.allow_control or demo_brake_assist_active):
+            apply_active_control = self.mode == "active" and _should_apply_active_control(
+                decision,
+                demo_control_allowed=demo_control_allowed,
+                demo_brake_assist_active=demo_brake_assist_active,
+            )
+            if apply_active_control:
                 self.ctx.control_sink.apply(demo_command)
             else:
                 self.ctx.control_sink.neutralize()
@@ -559,6 +612,12 @@ class AutopilotApp:
                     "demo_qualifying_frames": demo_status.qualifying_frames if demo_status is not None else None,
                     "demo_command_mode": demo_resolution.mode if demo_status is not None else None,
                     "demo_brake_assist_active": demo_brake_assist_active,
+                    "demo_corridor_current_index": (
+                        self.ctx.demo_cage.current_sequence_index if self.ctx.demo_cage is not None else None
+                    ),
+                    "demo_corridor_highest_index": (
+                        self.ctx.demo_cage.highest_sequence_index if self.ctx.demo_cage is not None else None
+                    ),
                     "manual_override_active": manual_override_active,
                 },
             })

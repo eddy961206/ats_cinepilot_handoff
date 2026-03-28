@@ -265,3 +265,59 @@ def test_summarize_shadow_log_collects_demo_command_metrics(tmp_path):
         "armed": 1,
         "speed_cap_exceeded": 1,
     }
+
+
+def test_summarize_shadow_log_tracks_dense_corridor_edge_sequence_metrics(tmp_path):
+    module = _load_summary_module()
+    log_path = tmp_path / "dense_demo.jsonl"
+    rows = [
+        {
+            "matched": {"edge_id": "edge_a"},
+            "command": {"steering": 0.00, "throttle": 0.2, "brake": 0.0},
+            "status": {
+                "graph_source": "curated_dense_local_corridor_graph",
+                "alignment_mode": "ats_absolute_identity",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "world_absolute",
+                "safety_decision": "NONE",
+                "heading_source": "absolute_position_hold",
+                "graph_failure": None,
+                "map_match_confidence": 1.0,
+                "route_confidence": 0.7,
+                "cross_track_error_m": 0.02,
+                "nearest_edge_distance_m": 0.04,
+                "graph_candidate_count": 1,
+                "demo_corridor_current_index": 0,
+                "demo_corridor_highest_index": 0,
+            },
+        },
+        {
+            "matched": {"edge_id": "edge_b"},
+            "command": {"steering": 0.11, "throttle": 0.2, "brake": 0.0},
+            "status": {
+                "graph_source": "curated_dense_local_corridor_graph",
+                "alignment_mode": "ats_absolute_identity",
+                "pose_source": "authoritative_absolute",
+                "pose_frame": "world_absolute",
+                "safety_decision": "NONE",
+                "heading_source": "absolute_position_delta",
+                "graph_failure": None,
+                "map_match_confidence": 1.0,
+                "route_confidence": 0.7,
+                "cross_track_error_m": 0.04,
+                "nearest_edge_distance_m": 0.05,
+                "graph_candidate_count": 1,
+                "demo_corridor_current_index": 1,
+                "demo_corridor_highest_index": 1,
+            },
+        },
+    ]
+    log_path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    summary = module.summarize_log(log_path)
+
+    assert summary["corridor_edge_sequence"] == ["edge_a", "edge_b"]
+    assert summary["corridor_highest_index"] == 1

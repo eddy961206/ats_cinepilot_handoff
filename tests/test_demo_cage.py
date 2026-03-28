@@ -16,15 +16,23 @@ def _frame(speed_mps: float = 3.0) -> TelemetryFrame:
     )
 
 
-def _matched(edge_id: str = "ab", progress_m: float = 10.0) -> MatchedEdge:
+def _matched(
+    edge_id: str = "ab",
+    progress_m: float = 10.0,
+    *,
+    cross_track_error_m: float = 0.05,
+    heading_error_rad: float = 0.01,
+    confidence: float = 0.99,
+    travel_direction: str = "forward",
+) -> MatchedEdge:
     return MatchedEdge(
         edge_id=edge_id,
         lane_id=None,
         progress_m=progress_m,
-        cross_track_error_m=0.05,
-        heading_error_rad=0.01,
-        confidence=0.99,
-        travel_direction="forward",
+        cross_track_error_m=cross_track_error_m,
+        heading_error_rad=heading_error_rad,
+        confidence=confidence,
+        travel_direction=travel_direction,
     )
 
 
@@ -259,6 +267,172 @@ def test_demo_safety_cage_rejects_missing_preview_path():
     assert blocked.reason == "preview_path_missing"
 
 
+def test_demo_safety_cage_requires_dense_corridor_start_edge_before_arming():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_demo_curve",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("edge_a", "edge_b"),
+            approved_edge_sequence=("edge_a", "edge_b"),
+            start_edge_id="edge_a",
+            start_progress_max_m=8.0,
+        )
+    )
+
+    blocked = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="edge_b", progress_m=1.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert blocked.allow_control is False
+    assert blocked.reason == "corridor_start_edge_required"
+
+
+def test_demo_safety_cage_rejects_dense_corridor_start_progress_below_window():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_demo_curve",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("edge_a", "edge_b"),
+            approved_edge_sequence=("edge_a", "edge_b"),
+            start_edge_id="edge_a",
+            start_progress_min_m=12.0,
+            start_progress_max_m=28.0,
+        )
+    )
+
+    blocked = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="edge_a", progress_m=8.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert blocked.allow_control is False
+    assert blocked.reason == "corridor_start_progress_low"
+
+
+def test_demo_safety_cage_primes_start_window_once_even_if_other_guards_fail():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_demo_curve",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("edge_a", "edge_b"),
+            approved_edge_sequence=("edge_a", "edge_b"),
+            start_edge_id="edge_a",
+            start_progress_min_m=12.0,
+            start_progress_max_m=28.0,
+            max_cross_track_error_m=0.2,
+        )
+    )
+
+    first = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="edge_a", progress_m=20.0, cross_track_error_m=0.4),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+    second = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="edge_a", progress_m=32.0, cross_track_error_m=0.4),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert first.reason == "cross_track_error_high"
+    assert second.reason == "cross_track_error_high"
+
+
+def test_demo_safety_cage_rejects_dense_corridor_sequence_regression():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_demo_curve",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("edge_a", "edge_b"),
+            approved_edge_sequence=("edge_a", "edge_b"),
+            start_edge_id="edge_a",
+            start_progress_max_m=8.0,
+            arm_consecutive_frames=1,
+        )
+    )
+
+    armed = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="edge_a", progress_m=2.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+    advanced = cage.evaluate(
+        frame=_frame(speed_mps=1.5),
+        matched=_matched(edge_id="edge_b", progress_m=5.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+    regressed = cage.evaluate(
+        frame=_frame(speed_mps=1.5),
+        matched=_matched(edge_id="edge_a", progress_m=6.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert armed.allow_control is True
+    assert advanced.allow_control is True
+    assert regressed.allow_control is False
+    assert regressed.reason == "edge_sequence_regressed"
+
+
 def test_resolve_demo_command_keeps_bootstrap_throttle_until_heading_locks():
     resolved = resolve_demo_command(
         VehicleCommand(steering=0.3, throttle=0.8, brake=0.0),
@@ -266,11 +440,83 @@ def test_resolve_demo_command_keeps_bootstrap_throttle_until_heading_locks():
         DemoCageConfig(enabled=True, bootstrap_throttle=0.35),
     )
 
-    assert resolved.command.steering == 0.0
+    assert resolved.command.steering == 0.3
     assert resolved.command.throttle == 0.35
     assert resolved.command.brake == 0.0
-    assert resolved.apply_when_disengaged is False
+    assert resolved.apply_when_disengaged is True
     assert resolved.mode == "bootstrap"
+
+
+def test_demo_safety_cage_bootstrap_can_use_corridor_specific_relaxed_thresholds():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_curated_freeway_demo",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("dense_seg_01",),
+            approved_edge_sequence=("dense_seg_01",),
+            start_edge_id="dense_seg_01",
+            start_progress_max_m=25.0,
+            bootstrap_max_speed_mps=0.6,
+            bootstrap_throttle=0.30,
+            bootstrap_min_match_confidence=0.60,
+            bootstrap_max_cross_track_error_m=1.50,
+            bootstrap_max_nearest_edge_distance_m=1.50,
+        )
+    )
+
+    bootstrap = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="dense_seg_01", progress_m=18.0, confidence=0.67, cross_track_error_m=1.34),
+        hint=_hint(confidence=0.47),
+        path=_path(),
+        telemetry_state=_telemetry_state(heading_source="unknown", anchor_heading_locked=False),
+        matcher_diagnostics=_matcher_diag(candidate_count=1, nearest_edge_distance_m=1.34),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert bootstrap.allow_control is True
+    assert bootstrap.reason == "bootstrap"
+
+
+def test_demo_safety_cage_bootstrap_still_rejects_large_dense_corridor_offset():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_curated_freeway_demo",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("dense_seg_01",),
+            approved_edge_sequence=("dense_seg_01",),
+            start_edge_id="dense_seg_01",
+            start_progress_max_m=25.0,
+            bootstrap_max_speed_mps=0.6,
+            bootstrap_throttle=0.30,
+            bootstrap_min_match_confidence=0.60,
+            bootstrap_max_cross_track_error_m=1.50,
+            bootstrap_max_nearest_edge_distance_m=1.50,
+        )
+    )
+
+    blocked = cage.evaluate(
+        frame=_frame(speed_mps=0.0),
+        matched=_matched(edge_id="dense_seg_01", progress_m=18.0, confidence=0.67, cross_track_error_m=1.81),
+        hint=_hint(confidence=0.47),
+        path=_path(),
+        telemetry_state=_telemetry_state(heading_source="unknown", anchor_heading_locked=False),
+        matcher_diagnostics=_matcher_diag(candidate_count=1, nearest_edge_distance_m=1.81),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert blocked.allow_control is False
+    assert blocked.reason == "heading_source_unapproved"
 
 
 def test_resolve_demo_command_allows_brake_only_assist_on_speed_cap_guard():
@@ -285,3 +531,105 @@ def test_resolve_demo_command_allows_brake_only_assist_on_speed_cap_guard():
     assert resolved.command.brake == 0.7
     assert resolved.apply_when_disengaged is True
     assert resolved.mode == "brake_assist"
+
+
+def test_demo_safety_cage_rejects_out_of_order_dense_corridor_regression():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_demo",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("edge_a", "edge_b"),
+            approved_edge_sequence=("edge_a", "edge_b"),
+            completion_edge_id="edge_b",
+            completion_max_progress_m=50.0,
+            arm_consecutive_frames=1,
+        )
+    )
+
+    first = cage.evaluate(
+        frame=_frame(),
+        matched=_matched(edge_id="edge_a", progress_m=10.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+    second = cage.evaluate(
+        frame=_frame(),
+        matched=_matched(edge_id="edge_b", progress_m=12.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+    regressed = cage.evaluate(
+        frame=_frame(),
+        matched=_matched(edge_id="edge_a", progress_m=18.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert first.reason == "armed"
+    assert second.reason == "armed"
+    assert regressed.allow_control is False
+    assert regressed.reason == "edge_sequence_regressed"
+
+
+def test_demo_safety_cage_marks_dense_corridor_complete_at_terminal_progress():
+    cage = DemoSafetyCage(
+        DemoCageConfig(
+            enabled=True,
+            corridor_name="dense_demo",
+            approved_graph_source="curated_dense_local_corridor_graph",
+            approved_alignment_mode="ats_absolute_identity",
+            approved_edge_ids=("edge_a", "edge_b"),
+            approved_edge_sequence=("edge_a", "edge_b"),
+            completion_edge_id="edge_b",
+            completion_max_progress_m=50.0,
+            arm_consecutive_frames=1,
+        )
+    )
+
+    cage.evaluate(
+        frame=_frame(),
+        matched=_matched(edge_id="edge_a", progress_m=10.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+    complete = cage.evaluate(
+        frame=_frame(),
+        matched=_matched(edge_id="edge_b", progress_m=55.0),
+        hint=_hint(),
+        path=_path(),
+        telemetry_state=_telemetry_state(),
+        matcher_diagnostics=_matcher_diag(),
+        graph_source="curated_dense_local_corridor_graph",
+        alignment_mode="ats_absolute_identity",
+        control_sink_healthy=True,
+        manual_override_active=False,
+    )
+
+    assert complete.allow_control is False
+    assert complete.reason == "corridor_complete"

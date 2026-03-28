@@ -1,0 +1,85 @@
+corridor:
+  name: "dense_curated_freeway_demo"
+  source_cache_path: "data/maps/cache/ats_usa_region_dense_local_geojson_8km.json"
+  graph_cache_path: "data/maps/cache/demo_dense_curated_corridor_graph.json"
+  graph_source: "curated_dense_local_corridor_graph"
+  alignment_mode: "ats_absolute_identity"
+  translation_world_x_m: 0.0
+  translation_world_z_m: 0.0
+  start_edge_id: "dense_seg_01"
+  end_edge_id: "dense_seg_04"
+  ordered_edges:
+    - edge_id: "dense_seg_01"
+      source_edge_id: "62b5d88d5d30001__fwd"
+      source_travel_direction: "forward"
+      start_world_x: -74372.21340540476
+      start_world_z: 27451.342477144302
+      end_world_x: -74408.71062506846
+      end_world_z: 27216.018385892832
+    - edge_id: "dense_seg_02"
+      source_edge_id: "62b5c75b1a3011a__fwd"
+      source_travel_direction: "forward"
+      start_world_x: -74408.69613125049
+      start_world_z: 27216.15528347357
+      end_world_x: -74438.6750715137
+      end_world_z: 26909.849355655173
+    - edge_id: "dense_seg_03"
+      source_edge_id: "62b676d1a430001__fwd"
+      source_travel_direction: "forward"
+      start_world_x: -74438.69120800932
+      start_world_z: 26909.37908425898
+      end_world_x: -74425.82666472196
+      end_world_z: 26658.278042634527
+    - edge_id: "dense_seg_04"
+      source_edge_id: "62b67708e830001__fwd"
+      source_travel_direction: "forward"
+      start_world_x: -74425.78695048648
+      start_world_z: 26657.960211539772
+      end_world_x: -74390.47068555756
+      end_world_z: 26383.22937766688
+
+map:
+  cache_path: "data/maps/cache/demo_dense_curated_corridor_graph.json"
+  source_name: "curated_dense_local_corridor_graph"
+  alignment_mode: "ats_absolute_identity"
+
+demo:
+  contract_path: "configs/corridors/demo_dense_curated_corridor.yaml"
+  corridor_name: "dense_curated_freeway_demo"
+  approved_graph_source: "curated_dense_local_corridor_graph"
+  approved_alignment_mode: "ats_absolute_identity"
+  approved_edge_ids:
+    - "dense_seg_01"
+    - "dense_seg_02"
+    - "dense_seg_03"
+    - "dense_seg_04"
+  approved_edge_sequence:
+    - "dense_seg_01"
+    - "dense_seg_02"
+    - "dense_seg_03"
+    - "dense_seg_04"
+  start_edge_id: "dense_seg_01"
+  start_progress_min_m: 0.0
+  start_progress_max_m: 220.0
+  completion_edge_id: "dense_seg_04"
+  completion_max_progress_m: 240.0
+  allowed_travel_directions: ["forward"]
+  allowed_direction_confidence_states: ["confident"]
+  allowed_pose_sources: ["authoritative_absolute"]
+  allowed_heading_sources: ["absolute_position_delta", "absolute_position_hold"]
+  min_match_confidence: 0.98
+  min_route_confidence: 0.67
+  max_cross_track_error_m: 0.45
+  max_heading_error_deg: 6.0
+  max_nearest_edge_distance_m: 0.45
+  max_speed_mps: 2.5
+  max_graph_candidate_count: 1
+  require_anchor_locked: true
+  require_no_discontinuity: true
+  arm_consecutive_frames: 10
+  bootstrap_max_speed_mps: 1.0
+  bootstrap_throttle: 1.00
+  bootstrap_min_match_confidence: 0.60
+  bootstrap_max_cross_track_error_m: 0.80
+  bootstrap_max_nearest_edge_distance_m: 0.80
+  allow_speed_cap_brake_assist: true
