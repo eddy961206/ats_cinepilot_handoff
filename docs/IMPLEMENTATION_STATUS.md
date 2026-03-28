@@ -1,201 +1,189 @@
 # Implementation Status
 
-## 2026-03-22 실제 검증 스냅샷
+## 2026-03-26 실제 상태
 
-### 이번 세션에서 새로 확인된 것
-- 실제 ATS world graph 경로를 하나로 고정했다.
-  - 선택한 source/toolchain: `truckermudgeon/maps` 공개 `usa-graph-demo.json`
-  - 선택 이유: 지금 이 머신에서 바로 재현 가능하고, 별도 exporter 설치 없이 ATS 실좌표와 비교할 수 있는 가장 작은 실경로라서
-- `src/ats_cinepilot/map/projections.py`에 ATS Lambert Conformal Conic 변환을 추가했다.
-  - `ats_coords_to_wgs84`
-  - `wgs84_to_ats_coords`
-- `trucksim_maps` adapter가 `demoGraph` + `demoNodes` 형식을 직접 읽는다.
-  - `demoNodes`의 `lon/lat`를 ATS absolute `x/z`로 역변환해서 internal graph cache로 넣는다.
-- `scripts/export_map.py`가 live shared-memory absolute pose를 중심으로 공개 demo graph를 잘라서 internal cache로 저장한다.
-  - 현재 검증에 쓴 캐시: `data/maps/cache/ats_usa_region_real_graph_8km.json`
-  - 현재 메타데이터:
-    - `source_node_count = 175565`
-    - `source_edge_count = 375577`
-    - `cropped_node_count = 2015`
-    - `cropped_edge_count = 4092`
-    - `alignment_mode = ats_absolute_identity`
-- matcher/app/recorder/startup summary가 graph source / alignment / nearest-edge distance / candidate count를 실제로 남긴다.
-- raw live capture 하나를 두 pose frame으로 다시 decode해서 toy graph와 real graph를 같은 움직임으로 A/B 비교할 수 있게 했다.
-  - `scripts/convert_shared_memory_v2_capture_to_replay.py`
-  - `scripts/record_telemetry_replay.py`
-  - `scripts/summarize_shadow_log.py`
+### 이번 세션 base 상태
 
-### 현재 채택한 실좌표 계약
-- `285:f64` -> `world_x`
-- `293:f64` -> `world_y`
-- `301:f64` -> `world_z`
+- `main`이 아니라 `codex/real-ats-world-graph-alignment@3443e94707d7f17c32cee488753627251393eab4`를 베이스로 썼다.
+- 즉 이번 세션은 stale `main` 기반이 아니라 PR #6 / #7 / #8 lineage가 이미 들어있는 integration branch 기반이다.
 
-이 계약은 이제 toy graph bring-up뿐 아니라 real graph identity alignment에서도 실제로 썼다.
+## 지금 실제로 검증된 것
 
-## 구현돼 있고 실제로 돌아간 것
+### telemetry / pose
 
-- replay telemetry source
-- HTTP JSON telemetry source
-- `shared_memory_v2` telemetry source
-- absolute pose decode
-- discontinuity detection + anchor reset
-- raw capture / replay conversion / log summary tooling
-- toy graph shadow mode
-- real graph cache export from public `truckermudgeon/maps` demo graph
-- ATS absolute pose -> real graph `ats_absolute_identity` alignment
-- live shared-memory real-graph probe
-- ATS-backed real-graph shadow run
+- `SCSTelemetrySharedv2_ats` live ingest 동작
+- absolute pose 계약 유지
+  - `285:f64 -> world_x`
+  - `293:f64 -> world_y`
+  - `301:f64 -> world_z`
+- discontinuity detection / anchor reset 동작
 
-## 현재 선택된 real graph 경로
+### shadow / graph
 
-- source/toolchain: `truckermudgeon/maps` 공개 `usa-graph-demo.json`
-- internal adapter: `src/ats_cinepilot/map/adapters/trucksim_maps.py`
-- export command:
+- replay shadow mode 동작
+- ATS-backed shadow bring-up 동작
+- toy graph / coarse real graph / dense local graph 경로 존재
+- dense local graph matcher diagnostics / reverse-heading rescue / continuity gating 존재
+- dense local graph는 아직 shadow generalization 병목을 완전히 해소하지 못했다
 
-```powershell
-.\.venv\Scripts\python scripts\export_map.py --source trucksim-demo --input https://truckermudgeon.github.io/usa-graph-demo.json --output data\maps\cache\ats_usa_region_real_graph_8km.json --center-from-config configs\live_probe_moza_shared_memory.yaml --crop-radius-m 8000 --compact
-```
+### control path
 
-- runtime config:
-  - toy graph: `configs/live_probe_ats_toy_graph.yaml`
-  - real graph: `configs/live_probe_ats_real_graph.yaml`
+- `scs-sdk-controller` patched DLL을 ATS plugin dir에 실제 배치했다
+- module steering write는 실제로 보였다
+- module left blinker write는 실제로 보였다
+- module throttle / brake는 아직 실사용 경로가 아니다
+- keyboard `W/S` write는 실제로 먹는다
+- 현재 usable demo sink는 `hybrid`
+  - steering / blinkers: module sink
+  - throttle / brake: keyboard sink
 
-## real graph 정렬 전략
+### constrained active demos
 
-- graph source가 `lon/lat`로만 나오므로 adapter에서 다시 ATS absolute `x/z`로 역투영한다.
-- 그래서 현재 선택한 정렬은 별도 magic constant 없이 `ats_absolute_identity`다.
-  - scale: `1.0`
-  - axis: ATS `world_x -> graph x`, ATS `world_z -> graph z`
-  - offset: `0`
-  - `world_y`는 현재 2D matcher에만선 안 쓴다.
-- 이 선택은 “정밀 lane graph라서 완벽하다”는 뜻이 아니라, 현재 공개 artifact와 현재 absolute pose 계약이 같은 좌표계에 있다는 최소한의 계약이다.
+- straight constrained live active demo 존재
+  - config: `configs/demo_active_corridor.yaml`
+  - helper: `scripts/run_demo_active_corridor.ps1`
+- gentle-curve constrained live active demo 존재
+  - config: `configs/demo_active_gentle_curve.yaml`
+  - helper: `scripts/run_demo_active_gentle_curve.ps1`
+- gentle-curve demo는 keyboard longitudinal PWM을 사용한다
+  - `control.keyboard.longitudinal_pwm_period_s=0.25`
 
-## 검증 결과
+## 이번 세션의 실제 gentle-curve 결과
 
-### live probe
+### baseline
+
+- straight corridor baseline은 유지됐다
+- 기존 straight demo 계약은 그대로 남겨뒀다
+
+### curved shadow qualification
+
+- stationary shadow qualification은 통과했다
+- 이후 live curved active에서 실제 closed-loop steering demand가 확인됐다
+
+### curved active demo result
+
+command:
 
 ```powershell
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_ats_real_graph.yaml --frames 3
+powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_gentle_curve.ps1 -ShadowSteps 25 -ActiveSteps 120 -ActiveCountdownSeconds 8
 ```
 
-실제 결과:
-- `SCSTelemetrySharedv2_ats` visible
-- decode 성공
-- `pose_source=authoritative_absolute`
-- `pose_frame=world_absolute`
-- absolute world pose와 update token 변화 확인
+actual summary:
 
-### 같은 raw capture로 한 A/B 비교
-
-straight/light-turn capture를 같은 원본 raw shared-memory dump에서 두 번 decode해서 비교했다.
-
-- toy graph (`anchored_local_toy_graph`)
-  - `steps=150`
-  - `safety={NONE: 88, MATCH_LOST: 62}`
-  - `first_MATCH_LOST=89`
-  - `match=[0.576, 1.000]`
-  - `route=[0.468, 0.700]`
-  - `cte_max=32.544`
-  - `near=[0.000, 32.544]`
-  - `cand=[1, 2]`
-- real graph (`ats_absolute_identity`)
-  - `steps=150`
-  - `safety={MATCH_LOST: 150}`
-  - `first_MATCH_LOST=1`
-  - `match=[0.876, 0.951]`
-  - `route=[0.419, 0.480]`
-  - `cte_max=13.910`
-  - `near=[6.187, 13.646]`
-  - `cand=[2, 6]`
-
-turn-heavy capture A/B:
-
-- toy graph (`anchored_local_toy_graph`)
-  - `steps=200`
-  - `safety={NONE: 23, MATCH_LOST: 177}`
-  - `first_MATCH_LOST=24`
-  - `match=[0.000, 1.000]`
-  - `route=[0.000, 0.700]`
-  - `cte_max=44.690`
-  - `near=[0.000, 44.690]`
-  - `cand=[0, 1]`
-  - `graph_failures={None: 95, no_nearby_edge: 105}`
-- real graph (`ats_absolute_identity`)
-  - `steps=200`
-  - `safety={MATCH_LOST: 165, ROUTE_CONFIDENCE_LOW: 35}`
-  - `first_MATCH_LOST=1`
-  - `match=[0.822, 1.000]`
-  - `route=[0.329, 0.499]`
-  - `cte_max=9.680`
-  - `near=[0.025, 9.680]`
-  - `cand=[14, 23]`
-  - `graph_failures={None: 200}`
+- `steps=145`
+- `safety={NONE: 111, MATCH_LOST: 9, DEMO_GUARD: 24, ROUTE_CONFIDENCE_LOW: 1}`
+- `first_MATCH_LOST=92`
+- `match=[0.997, 1.000]`
+- `route=[0.681, 0.700]`
+- `cte_max=0.240`
+- `cand=[1, 1]`
+- `steering_abs_max=0.209`
+- `non_trivial_steering_count=32`
+- `throttle_command_count=126`
+- `brake_command_count=18`
+- `demo_guard_reasons={bootstrap: 91, heading_source_unapproved: 4, arming: 11, armed: 20, speed_cap_exceeded: 19}`
 
 해석:
-- real graph가 turn-heavy에서도 **coverage 자체는 유지**했다.
-  - toy graph처럼 `no_nearby_edge`가 쏟아지지 않았다.
-  - nearest-edge distance와 cross-track error도 훨씬 낮았다.
-- 그런데 공개 demo graph가 lane-accurate polyline graph가 아니라서 route confidence가 계속 낮고, safety gate를 통과할 만큼 정밀하지 않았다.
 
-### 추가 live real-graph run
+- 곡선 구간에서 steering이 실제로 0이 아니었다
+- throttle / brake도 같은 run 안에서 실제로 적용됐다
+- 즉 첫 gentle-curve constrained live active demo는 성립했다
+- 다만 `speed_cap_exceeded`가 여전히 주요 disengage 원인이라, longitudinal shaping은 아직 거칠다
 
-2026-03-22에 ATS 실주행 20초 샘플을 `world_absolute + ats_absolute_identity + real graph`로 직접 돌렸다.
+## 현재 선택 계약
 
-- `steps=200`
-- `safety={MATCH_LOST: 95, ROUTE_CONFIDENCE_LOW: 105}`
-- `first_MATCH_LOST=1`
-- `match=[0.951, 1.000]`
-- `route=[0.404, 0.500]`
-- `cte_max=3.301`
-- `near=[0.005, 3.301]`
-- `cand=[8, 21]`
-- `heading_sources={velocity_direction: 1, absolute_position_delta: 182, absolute_position_hold: 17}`
-- `graph_failures={None: 200}`
+### straight demo
 
-해석:
-- absolute pose와 identity alignment 덕분에 real graph coverage는 실제 live run에서도 끊기지 않았다.
-- 하지만 route confidence가 0.5 아래에 묶여서, 현재 safety gate 기준으론 “meaningful route following”까지는 못 갔다.
+- file: `configs/demo_active_corridor.yaml`
+- telemetry: `shared_memory_v2`
+- graph: `toy_graph`
+- alignment: `anchored_local_toy_graph`
+- corridor: `ab`
+- sink: `hybrid`
 
-## 솔직한 현재 상태
+### gentle-curve demo
 
-이 저장소는 이제 아래까지는 실제로 검증됐다.
+- file: `configs/demo_active_gentle_curve.yaml`
+- telemetry: `shared_memory_v2`
+- graph: `toy_gentle_curve_graph`
+- alignment: `anchored_local_toy_graph`
+- corridor: `curve_ab`
+- sink: `hybrid`
+- speed cap: `3.0 m/s`
+- keyboard longitudinal PWM: `0.25 s`
 
-- replay shadow mode
-- ATS-backed shared-memory telemetry ingest
-- authoritative absolute position decode
-- discontinuity reset
-- toy graph bring-up
-- real graph cache export
-- ATS absolute pose와 real graph의 global identity alignment
-- live real-graph shadow sample
+## demo cage 조건
 
-하지만 아직 아래는 검증 주장 금지다.
+active control 허용 조건:
 
-- authoritative direct yaw field
-- lane-accurate real ATS road graph alignment
-- route-confidence가 충분한 real-graph shadow mode
-- HUD calibration 실사용
-- control sink write
-- Active Mode
+- live telemetry healthy
+- approved graph / alignment 일치
+- approved edge id 일치
+- travel direction = `forward`
+- direction confidence state = `confident`
+- pose source = `authoritative_absolute`
+- heading source = `absolute_position_delta | absolute_position_hold`
+- preview path 존재
+- match confidence floor 충족
+- route confidence floor 충족
+- cross-track error ceiling 충족
+- heading error ceiling 충족
+- nearest-edge distance ceiling 충족
+- graph candidate count ceiling 충족
+- speed cap 충족
+- discontinuity 없음
+- anchor locked
+- manual override 없음
 
-## 현재 가장 큰 병목
+실패 시 동작:
 
-지금 dominant bottleneck은 heading semantics보다 **graph fidelity**다.
+- 즉시 neutralize
+- `demo_guard_reason` 기록
+- speed cap exceeded일 때만 brake-only assist 허용
 
-- `285/293/301` absolute pose 계약은 real graph와 붙여도 일관되게 nearby edge를 찾는다.
-- turn-heavy에서도 coverage failure보다 route-confidence failure가 먼저 보인다.
-- 공개 `usa-graph-demo.json`은 straight edge 중심의 coarse graph라서 lane/path 수준의 matching 품질이 안 나온다.
+## 현재 한계
 
-즉, 다음 단계는:
-1. 더 정밀한 ATS road geometry exporter를 확보하거나
-2. 최소 한 지역이라도 polyline/lane 수준 실그래프를 연결하고
-3. 그 뒤에야 yaw field와 matcher 임계값의 실제 병목을 다시 분리하는 거다.
+- module longitudinal는 아직 실사용 계약이 아니다
+- keyboard longitudinal은 ATS foreground focus가 필요하다
+- keyboard longitudinal는 저속 curve demo에서 아직도 거칠다
+- direct yaw field는 아직 채택 안 했다
+- dense local graph active generalization은 아직 범위 밖이다
+- route-aware autonomy는 아직 아니다
+- general Active Mode라고 부를 단계는 아니다
 
-## 코드상 존재하지만 아직 실환경 미검증인 것
+## 현재 결론
 
-- authoritative direct yaw field (`309:f32`, `325:f32` 모두 아직 미채택)
-- authoritative paused / world-state field
-- authoritative game tick
-- HUD preset 실제 캘리브레이션
-- `scscontroller` 기반 control sink
-- Active Mode
+이번 milestone은 **첫 straight demo 다음 단계인 첫 gentle-curve constrained live active demo**다.
+
+정확한 의미:
+
+- telemetry는 live다
+- steering write path는 live module path로 적용됐다
+- throttle / brake는 live hybrid path로 적용됐다
+- 곡선 구간에서 의미 있는 non-zero steering이 실제로 발생했다
+- safety cage가 arm / disarm / brake assist를 실제로 수행했다
+
+아직 의미하지 않는 것:
+
+- 일반 도로 active driving
+- dense local graph active corridor
+- route following
+- complex intersection handling
+- production-quality active autopilot
+
+## 다음 dominant bottleneck
+
+지금 가장 큰 병목은 steering sign보다 **demo longitudinal shaping과 corridor fidelity**다.
+
+더 좁게 말하면:
+
+- gentle-curve demo 자체는 성립했다
+- 하지만 speed cap guard가 아직 빨리 걸린다
+- 다음 확장은 route-following이 아니라 curated corridor fidelity / low-speed shaping 쪽이다
+
+## 다음 추천 작업
+
+1. gentle-curve demo를 human-run 절차로 반복 재현
+2. keyboard longitudinal shaping을 demo 범위 안에서만 더 다듬기
+3. 그 다음에만 curated denser corridor 1개로 확장 검토
+4. module longitudinal는 별도 트랙으로 계속 isolate

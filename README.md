@@ -1,158 +1,177 @@
 # ATS CinePilot
 
-ATS에서 **안전하게 bring-up 가능한 cinematic shadow autopilot**을 만드는 프로젝트 스캐폴드야.
+ATS에서 **첫 gentle-curve constrained live active demo**까지 bring-up한 프로젝트야.
 
-핵심 방향은 이거다.
+이 프로젝트의 철학은 그대로다.
 
-- 순수 화면 AI보다 **텔레메트리 + 도로 그래프 + HUD 경로 힌트 + 규칙 기반 제어기** 구조를 우선한다.
-- 첫 목표는 flashy한 Active Mode가 아니라 **실제 live telemetry ingest + 안정적인 Shadow Mode**다.
-- MOZA R3는 v1에선 **수동 takeover 장치**로 취급한다.
-- control path와 Active Mode는 telemetry semantics와 graph alignment가 solid해진 뒤에만 건드린다.
+- CV-first로 가지 않는다
+- telemetry + graph + rule-based controller를 우선한다
+- 지금 목표는 general autopilot이 아니라 **reviewable한 constrained demo**다
 
-## 지금 실제로 확인된 것
+## 현재 실제로 된 것
 
 - replay shadow mode 동작
-- editable install / pytest / ruff 통과
-- `SCSTelemetrySharedv2_ats` live mapping decode 성공
-- authoritative absolute pose 계약 일부 확인
-  - `285:f64` -> `world_x`
-  - `293:f64` -> `world_y`
-  - `301:f64` -> `world_z`
-- ATS-backed Shadow Mode bring-up 성공
-- ATS absolute pose를 실그래프 후보와 붙이는 real graph path 연결
-  - source/toolchain: `truckermudgeon/maps` 공개 `usa-graph-demo.json`
-  - alignment: `ats_absolute_identity`
-- toy graph vs real graph A/B 비교 가능
-- ATS-backed real-graph shadow sample 실제 검증
-  - `steps=200`
-  - `match=[0.951, 1.000]`
-  - `cte_max=3.301`
-  - `graph_failures={None: 200}`
+- `SCSTelemetrySharedv2_ats` live ingest 동작
+- absolute pose 계약 사용 중
+  - `285:f64 -> world_x`
+  - `293:f64 -> world_y`
+  - `301:f64 -> world_z`
+- discontinuity detection / anchor reset 동작
+- straight constrained live active demo 경로 존재
+- gentle-curve constrained live active demo 경로 존재
 
-## 아직 확인 안 된 것
+현재 gentle-curve demo path:
 
-- authoritative direct yaw field offset
-- lane-accurate real ATS world graph
-- real graph 기준 route confidence가 충분한 shadow reliability
-- HUD calibration 실사용
-- `scs-sdk-controller` 기반 control write
-- Active Mode
+- config: `configs/demo_active_gentle_curve.yaml`
+- helper: `scripts/run_demo_active_gentle_curve.ps1`
+- override kill-switch: `scripts/demo_override_on.ps1`
 
-## 중요한 현실 체크
+## 현재 control path 결론
 
-현재 실그래프 경로는 연결됐지만, 선택한 공개 graph artifact는 **coarse demo graph**다.
+실측 결과는 이거야.
 
-그래서 지금 성공한 실그래프 검증은:
-- telemetry가 실제로 들어온다
-- absolute pose가 공개 ATS graph와 같은 좌표계에 올라온다
-- turn-heavy에서도 graph coverage가 유지된다
+- module steering: 됨
+- module blinker: 됨
+- module throttle / brake: 아직 안 됨
+- keyboard `W/S`: 됨
 
-라는 뜻이지, 아직 “실제 ATS 도로 네트워크 전체를 lane/path 수준으로 따라간다”는 뜻은 아니다.
+그래서 현재 demo는 `hybrid` sink를 쓴다.
 
-현재 dominant bottleneck은 yaw보다 **graph fidelity**다.
+- steering / blinkers: `scs-sdk-controller` module sink
+- throttle / brake: Windows keyboard injection
 
-## 폴더 구조
+gentle-curve demo에선 keyboard longitudinal PWM을 추가로 쓴다.
 
-```text
-ats_cinepilot_handoff/
-├─ configs/
-├─ data/
-├─ docs/
-├─ scripts/
-├─ src/ats_cinepilot/
-└─ tests/
+- `control.keyboard.longitudinal_pwm_period_s=0.25`
+
+## live active demo에서 실제로 확인된 것
+
+### straight baseline
+
+직선 corridor baseline은 유지된다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_corridor.ps1 -ShadowSteps 20 -ActiveSteps 80 -ActiveCountdownSeconds 8
 ```
 
-## 추천 작업 순서
+### gentle-curve constrained demo
 
-1. `docs/CODEX_HANDOFF.md` 먼저 읽기
-2. `.\scripts\setup_venv.ps1`
-3. `ats-cinepilot check-config --config configs/profiles/replay_demo.yaml`
-4. `ats-cinepilot run --config configs/profiles/replay_demo.yaml --mode shadow --steps 300`
-5. `ats-cinepilot check-config --config configs/live_probe_ats_real_graph.yaml`
-6. `python scripts/inspect_telemetry.py --config configs/live_probe_ats_real_graph.yaml --frames 3`
-7. 필요하면 `python scripts/export_map.py ...`
-8. `ats-cinepilot run --config configs/live_probe_ats_real_graph.yaml --mode shadow --steps 300`
-9. 그다음에만 HUD / controls / Active Mode 범위로 이동
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_gentle_curve.ps1 -ShadowSteps 25 -ActiveSteps 120 -ActiveCountdownSeconds 8
+```
 
-## 빠른 시작 예시
+verified run summary:
+
+- `steps=145`
+- `safety={NONE: 111, MATCH_LOST: 9, DEMO_GUARD: 24, ROUTE_CONFIDENCE_LOW: 1}`
+- `first_MATCH_LOST=92`
+- `steering_abs_max=0.209`
+- `non_trivial_steering_count=32`
+- `throttle_command_count=126`
+- `brake_command_count=18`
+
+즉:
+
+- 곡선 구간에서 실제 non-zero steering이 걸렸다
+- throttle과 brake도 같은 run 안에서 적용됐다
+- safety cage는 조건이 깨지면 실제로 disengage했다
+
+중요:
+
+- 이건 toy gentle curve 하나에만 맞춘 demo다
+- dense-local general active driving이 아니다
+- route-following이 아니다
+- general autopilot capability claim이 아니다
+
+## 데모 제약
+
+이 demo는 아래 조건에서만 의미가 있다.
+
+- one corridor only
+- toy graph only
+- forward only
+- low speed only
+- route ambiguity 없음
+- discontinuity 없음
+- ATS 창 focus 유지
+- operator takeover 가능
+
+## 바로 돌리는 명령
+
+### setup
 
 ```powershell
 .\scripts\setup_venv.ps1
-.\.venv\Scripts\ats-cinepilot check-config --config configs\profiles\replay_demo.yaml
-.\.venv\Scripts\ats-cinepilot run --config configs\profiles\replay_demo.yaml --mode shadow --steps 300
-.\.venv\Scripts\ats-cinepilot check-config --config configs\live_probe_ats_real_graph.yaml
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_ats_real_graph.yaml --frames 3
-.\.venv\Scripts\python scripts\export_map.py --source trucksim-demo --input https://truckermudgeon.github.io/usa-graph-demo.json --output data\maps\cache\ats_usa_region_real_graph_8km.json --center-from-config configs\live_probe_moza_shared_memory.yaml --crop-radius-m 8000 --compact
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_ats_real_graph.yaml --mode shadow --steps 300
 ```
 
-## 현재 선택된 live telemetry 경로
-
-- plugin DLL: `atssharedplugin64v2.dll`
-- mapping name: `SCSTelemetrySharedv2_ats`
-- config: `configs/live_probe_moza_shared_memory.yaml`
-- design note: `docs/SHARED_MEMORY_V2_DESIGN.md`
-
-reader는 현재 아래를 사용한다.
-
-- absolute position: `285/293/301`
-- heading: `absolute_position_delta` + `absolute_position_hold`
-- discontinuity reset: `absolute_discontinuity_distance_m = 25.0`
-
-`309:f32`, `325:f32`는 direct yaw 후보로 조사했지만 아직 채택하지 않았다.
-
-## 현재 선택된 real graph 경로
-
-- config: `configs/live_probe_ats_real_graph.yaml`
-- cache: `data/maps/cache/ats_usa_region_real_graph_8km.json`
-- source/toolchain: `truckermudgeon/maps` 공개 `usa-graph-demo.json`
-- alignment mode: `ats_absolute_identity`
-
-이 경로는 toy graph 대신 ATS absolute pose를 실그래프 후보와 비교할 때 쓴다.
-
-## A/B 비교 도구
-
-같은 raw shared-memory capture로 toy graph와 real graph를 비교하는 흐름을 추가해뒀다.
-
-raw capture:
+### config check
 
 ```powershell
-.\.venv\Scripts\python scripts\capture_shared_memory_v2.py --config configs\live_probe_moza_shared_memory.yaml --seconds 15 --hz 10 --delay 10 --label straight_light_turn_ab
+.\.venv\Scripts\ats-cinepilot check-config --config configs\demo_active_gentle_curve.yaml
 ```
 
-replay 변환:
+### live telemetry probe
 
 ```powershell
-.\.venv\Scripts\python scripts\convert_shared_memory_v2_capture_to_replay.py --input data\captures\shared_memory_v2\<capture>.jsonl --output data\replays\<name>_anchor.jsonl --config configs\live_probe_moza_shared_memory.yaml --pose-frame-mode anchored_local
-.\.venv\Scripts\python scripts\convert_shared_memory_v2_capture_to_replay.py --input data\captures\shared_memory_v2\<capture>.jsonl --output data\replays\<name>_world.jsonl --config configs\live_probe_moza_shared_memory.yaml --pose-frame-mode world_absolute
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\demo_active_gentle_curve.yaml --frames 3 --require-ready
 ```
 
-요약:
+### live control probe
 
 ```powershell
-.\.venv\Scripts\python scripts\summarize_shadow_log.py --input data\logs\ab_straight_toy.jsonl --input data\logs\ab_straight_real.jsonl --input data\logs\ab_turn_toy.jsonl --input data\logs\ab_turn_real.jsonl --json data\debug\ab_summary.json
+.\.venv\Scripts\python scripts\inspect_controls.py --config configs\demo_active_gentle_curve.yaml --dry-run --require-ready
 ```
 
-## 외부 의존성
+### gentle-curve constrained active demo
 
-이 저장소 안에는 외부 프로젝트의 바이너리나 코드를 번들하지 않았다.
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_gentle_curve.ps1 -ShadowSteps 25 -ActiveSteps 120 -ActiveCountdownSeconds 8
+```
 
-필요할 가능성이 높은 외부 요소는 문서에 정리해뒀다.
+## safety
 
-- SCS Telemetry SDK / 텔레메트리 플러그인
-- `scs-sdk-controller`
-- `truckermudgeon/maps` 또는 `ts-map`
-- DXcam
+수동 disengage:
 
-## 문서 맵
+1. ATS에서 바로 브레이크 / 조향 takeover
+2. `Esc`
+3. `Ctrl+C`
+4. 다른 터미널에서 `scripts\demo_override_on.ps1`
 
-- `docs/CODEX_HANDOFF.md`
-- `docs/ARCHITECTURE.md`
+demo cage는 아래가 깨지면 즉시 neutralize한다.
+
+- telemetry freshness
+- approved graph / alignment
+- approved edge
+- match confidence
+- route confidence
+- cross-track error
+- heading error
+- candidate count
+- speed cap
+- discontinuity
+- manual override
+
+speed cap exceeded일 때만 brake-only assist는 허용한다.
+
+## 아직 안 된 것
+
+- module longitudinal write
+- direct yaw 채택
+- dense local graph 기반 constrained active corridor
+- HUD calibration 실사용
+- general Active Mode
+- route-aware autonomy 일반화
+
+## 다음 권장 단계
+
+1. gentle-curve demo를 human-run으로 반복 재현
+2. demo-only longitudinal shaping을 조금 더 다듬기
+3. 그 다음에만 curated denser corridor 1개로 확장
+4. route-following이나 dense-local general active는 아직 미루기
+
+자세한 상태:
+
 - `docs/IMPLEMENTATION_STATUS.md`
-- `docs/LOCAL_SETUP.md`
-- `docs/PLUGIN_OPTIONS.md`
-- `docs/RESEARCH_NOTES.md`
-- `docs/SHARED_MEMORY_V2_DESIGN.md`
 - `docs/RUNBOOK.md`
-- `docs/SAFETY.md`
+- `docs/LOCAL_SETUP.md`
+- `docs/SHARED_MEMORY_V2_DESIGN.md`

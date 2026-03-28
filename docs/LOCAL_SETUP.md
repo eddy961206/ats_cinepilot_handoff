@@ -1,144 +1,89 @@
 # Local Setup (Windows 11)
 
-## 1. 가상환경
+## 1. venv
 
 ```powershell
 .\scripts\setup_venv.ps1
 ```
 
-이번 세션에서도 실제로 성공했다.
+## 2. ATS telemetry plugin
 
-## 2. 현재 선택된 live telemetry 경로
-
-이 저장소가 지금 우선 지원하는 경로는 **MOZA shared memory v2**다.
-
-- plugin DLL: `atssharedplugin64v2.dll`
-- mapping name: `SCSTelemetrySharedv2_ats`
-- probe config: `configs/live_probe_moza_shared_memory.yaml`
-- 설계 메모: `docs/SHARED_MEMORY_V2_DESIGN.md`
-
-RenCloud `Local\SCSTelemetry` 경로는 여전히 참고용이지만, 이 머신에서 첫 live validation과 300-step shadow를 통과한 경로는 아니다.
-
-## 3. 외부 구성요소
-
-### telemetry
-- ATS plugin DLL은 `bin\win_x64\plugins\` 아래에 있어야 한다.
-- 이 머신에서는 아래 경로가 실제로 확인됐다.
+필수 경로:
 
 ```text
 D:\Steam\steamapps\common\American Truck Simulator\bin\win_x64\plugins\atssharedplugin64v2.dll
 ```
 
-### controls
-- control path는 아직 다음 단계다.
-- 나중에 `scs-sdk-controller`를 쓸 경우:
-  - DLL을 ATS `bin\win_x64\plugins\` 아래에 둬야 함
-  - Python 쪽 `scscontroller.py`도 import 가능해야 함
+선택된 telemetry contract:
 
-## 4. 설정 검증
+- mapping: `SCSTelemetrySharedv2_ats`
+- design note: `docs/SHARED_MEMORY_V2_DESIGN.md`
 
-replay:
+## 3. control plugin
+
+현재 demo는 module steering을 쓰기 때문에 control plugin도 필요하다.
+
+필수 파일:
+
+```text
+D:\Steam\steamapps\common\American Truck Simulator\bin\win_x64\plugins\scs_sdk_controller.dll
+C:\workspaces\python_workspace\_ext\scs-sdk-controller\scscontroller.py
+```
+
+현재 repo helper:
+
+- `scripts/install_scs_control_plugin.ps1`
+- `scripts/patch_scs_control_plugin.py`
+
+중요:
+
+- plugin source는 callback context patch가 필요했다
+- 현재 demo는 patched DLL 기준이다
+
+## 4. current demo sink
+
+현재 선택된 sink는 `hybrid`다.
+
+- steering / blinkers: module
+- throttle / brake: keyboard
+
+이건 `configs/demo_active_corridor.yaml`에 드러나 있다.
+
+## 5. config checks
 
 ```powershell
+.\.venv\Scripts\ats-cinepilot check-config --config configs\demo_active_corridor.yaml
 .\.venv\Scripts\ats-cinepilot check-config --config configs\profiles\replay_demo.yaml
 ```
 
-live shared memory:
+## 6. live probes
+
+telemetry:
 
 ```powershell
-.\.venv\Scripts\ats-cinepilot check-config --config configs\live_probe_moza_shared_memory.yaml
+.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\demo_active_corridor.yaml --frames 3 --require-ready
 ```
 
-## 5. telemetry probe
+controls:
 
 ```powershell
-.\.venv\Scripts\python scripts\inspect_telemetry.py --config configs\live_probe_moza_shared_memory.yaml --frames 8
+.\.venv\Scripts\python scripts\inspect_controls.py --config configs\demo_active_corridor.yaml --dry-run --require-ready
 ```
 
-이 스크립트는 이제 아래를 보여준다.
-
-- ATS 실행 여부
-- plugin DLL 경로
-- mapping visibility
-- decode 성공 여부
-- sampled frame별 update token / speed / rpm / gear / throttle / pose
-- `pose_source`, `pose_frame`, `heading_source`
-- `absolute_heading`, `anchor_heading`, `anchor_locked`
-- stale/layout failure 분류
-
-이번 세션의 실제 결과:
-
-- ATS 실행 중
-- `SCSTelemetrySharedv2_ats` visible
-- decode 성공
-- `pose_source=authoritative_absolute`
-- `pose_frame=anchored_local`
-- `anchor_locked=yes`
-- `telemetry status: telemetry ready`
-
-## 6. raw capture / offset 분석
-
-capture:
+## 7. current known-good demo command
 
 ```powershell
-.\.venv\Scripts\python scripts\capture_shared_memory_v2.py --config configs\live_probe_moza_shared_memory.yaml --seconds 6 --hz 10 --delay 3 --label straight_absolute_anchor
+powershell -ExecutionPolicy Bypass -File scripts\run_demo_active_corridor.ps1 -ShadowSteps 20 -ActiveSteps 80 -ActiveCountdownSeconds 8
 ```
 
-analysis:
+## 8. operator caveats
 
-```powershell
-.\.venv\Scripts\python scripts\analyze_shared_memory_v2_capture.py --input data\captures\shared_memory_v2 --inspect 285:f64 --inspect 293:f64 --inspect 301:f64
-```
+- ATS 창은 foreground여야 한다
+- drivable state여야 한다
+- keyboard longitudinal은 background child process보다 direct run / human-run helper가 더 안정적이었다
 
-현재 채택한 absolute pose 계약:
-- `285:f64` -> `world_x`
-- `293:f64` -> `world_y`
-- `301:f64` -> `world_z`
+## 9. 아직 미해결인 것
 
-## 7. replay smoke
-
-```powershell
-.\.venv\Scripts\ats-cinepilot run --config configs\profiles\replay_demo.yaml --mode shadow --steps 5
-```
-
-이번 세션에서도 실제로 성공했다.
-
-## 8. live shadow smoke / longer run
-
-smoke:
-
-```powershell
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_moza_shared_memory.yaml --mode shadow --steps 30
-```
-
-longer run:
-
-```powershell
-.\.venv\Scripts\ats-cinepilot run --config configs\live_probe_moza_shared_memory.yaml --mode shadow --steps 300
-```
-
-이번 세션의 실제 결과:
-
-- startup summary 출력 확인
-- live telemetry ingest 성공
-- step log 출력 확인
-- recorder 파일 생성 확인: `data/logs/live_probe_moza_shadow.jsonl`
-- 300-step 샘플에서 `safety=NONE` 300/300
-- `match_confidence` 최소값 `1.00`
-- `cross_track_error_m` 최대값 `0.046`
-
-중요:
-- 지금 성공은 **authoritative absolute pose + anchored-local toy-graph matching bring-up 성공**이다.
-- 아직 실제 ATS global road graph 정렬이 끝났다는 뜻은 아니다.
-
-## 9. controls probe
-
-```powershell
-.\.venv\Scripts\python scripts\inspect_controls.py --config configs\default.yaml --dry-run
-```
-
-이번 세션 기준으로는 아직 아래 상태다.
-
-- `scscontroller` module 없음
-- control plugin DLL 없음
-- Active Mode 검증 금지
+- module longitudinal(`aforward` / `abackward`)이 실제로 왜 안 먹는지
+- general Active Mode setup
+- route-aware wider corridor setup

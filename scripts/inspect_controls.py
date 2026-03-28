@@ -2,17 +2,29 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import traceback
+import platform
 from pathlib import Path
 
+from ats_cinepilot.bridge.control_probe import ControlPulseRequest, run_control_pulse
+from ats_cinepilot.bridge.hybrid_controls import (
+    HybridControlConfig,
+    ModuleSteeringKeyboardLongitudinalSink,
+)
+from ats_cinepilot.bridge.keyboard_controls import KeyboardControlConfig, KeyboardControlSink
 from ats_cinepilot.bridge.live_diagnostics import (
     ControlProbeStatus,
     classify_control_probe_status,
     find_ats_game_dir,
     process_is_running,
 )
-from ats_cinepilot.bridge.scs_controls import DynamicModuleControlSink, ModuleControlConfig, NoopControlSink
+from ats_cinepilot.bridge.scs_controls import (
+    DynamicModuleControlSink,
+    ModuleControlConfig,
+    NoopControlSink,
+    control_module_import_scope,
+)
 from ats_cinepilot.bridge.windows_probes import probe_named_mapping
-from ats_cinepilot.domain.types import VehicleCommand
 from ats_cinepilot.ops.config import cfg_get, resolve_config
 
 
@@ -20,6 +32,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", action="append", required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--require-ready", action="store_true")
+    parser.add_argument("--live-write", action="store_true")
+    parser.add_argument("--pulse-axis", choices=["steering", "throttle", "brake"], default="")
+    parser.add_argument("--value", type=float, default=0.0)
+    parser.add_argument("--hold-ms", type=int, default=200)
     args = parser.parse_args()
 
     cfg = resolve_config(args.config)
@@ -27,11 +44,56 @@ def main() -> None:
     ats_running = process_is_running(["amtrucks.exe", "amtrucks"])
     print(f"control sink: {sink_name}")
     print(f"ats running: {'yes' if ats_running else 'no'}")
+    control_category = "unknown"
     if sink_name == "module":
-        _inspect_module_target(cfg, ats_running)
+        control_category = _inspect_module_target(cfg, ats_running)
+    elif sink_name == "hybrid":
+        control_category = _inspect_hybrid_target(cfg, ats_running)
+    elif sink_name == "keyboard":
+        control_category = _inspect_keyboard_target(cfg)
 
     if sink_name == "noop":
         sink = NoopControlSink()
+    elif sink_name == "keyboard":
+        sink = KeyboardControlSink(
+            KeyboardControlConfig(
+                steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                longitudinal_pwm_period_s=float(
+                    cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
+                ),
+            )
+        )
+    elif sink_name == "hybrid":
+        sink = ModuleSteeringKeyboardLongitudinalSink(
+            HybridControlConfig(
+                module=ModuleControlConfig(
+                    module_name=cfg_get(cfg, "control.module_name"),
+                    class_name=cfg_get(cfg, "control.class_name"),
+                    apply_method=cfg_get(cfg, "control.apply_method", ""),
+                    neutral_method=cfg_get(cfg, "control.neutral_method", ""),
+                    field_mapping=dict(cfg_get(cfg, "control.field_mapping", {})),
+                    module_search_paths=list(cfg_get(cfg, "control.module_search_paths", [])),
+                ),
+                keyboard=KeyboardControlConfig(
+                    steer_left_key=str(cfg_get(cfg, "control.keyboard.steer_left_key", "a")),
+                    steer_right_key=str(cfg_get(cfg, "control.keyboard.steer_right_key", "d")),
+                    throttle_key=str(cfg_get(cfg, "control.keyboard.throttle_key", "w")),
+                    brake_key=str(cfg_get(cfg, "control.keyboard.brake_key", "s")),
+                    steering_threshold=float(cfg_get(cfg, "control.keyboard.steering_threshold", 0.15)),
+                    throttle_threshold=float(cfg_get(cfg, "control.keyboard.throttle_threshold", 0.08)),
+                    brake_threshold=float(cfg_get(cfg, "control.keyboard.brake_threshold", 0.08)),
+                    longitudinal_pwm_period_s=float(
+                        cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0)
+                    ),
+                ),
+            )
+        )
     else:
         sink = DynamicModuleControlSink(
             ModuleControlConfig(
@@ -40,23 +102,95 @@ def main() -> None:
                 apply_method=cfg_get(cfg, "control.apply_method", ""),
                 neutral_method=cfg_get(cfg, "control.neutral_method", ""),
                 field_mapping=dict(cfg_get(cfg, "control.field_mapping", {})),
+                module_search_paths=list(cfg_get(cfg, "control.module_search_paths", [])),
             )
         )
 
+    try:
+        sink.connect()
+        print("control connect: OK")
+    except Exception as exc:
+        print(f"control connect: FAILED ({exc})")
+        print(traceback.format_exc(limit=1).strip())
+        raise SystemExit(1) from exc
+
+    if args.require_ready and control_category != "control path ready":
+        print("control readiness check failed")
+        raise SystemExit(3)
+
     if args.dry_run:
-        print("dry-run requested; skipping apply/neutralize")
+        print("dry-run requested; connect only, skipping live writes")
         return
+    if not args.pulse_axis:
+        print("no pulse requested; connect-only probe completed")
+        return
+    if not args.live_write:
+        print("refusing live write without --live-write")
+        raise SystemExit(2)
 
-    sink.connect()
-    sink.apply(VehicleCommand(steering=0.1, throttle=0.0, brake=0.0))
-    sink.neutralize()
-    print("control sink smoke test completed")
+    print(
+        f"live pulse: axis={args.pulse_axis} value={args.value:.3f} hold_ms={args.hold_ms}"
+    )
+    run_control_pulse(
+        sink,
+        ControlPulseRequest(
+            axis=args.pulse_axis,
+            value=args.value,
+            hold_s=max(0.0, args.hold_ms / 1000.0),
+        ),
+    )
+    print("control pulse completed")
 
 
-def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
+def _inspect_keyboard_target(cfg: dict) -> str:
+    print("keyboard target: W/A/S/D input injection")
+    print(
+        "keyboard mapping: "
+        f"left={cfg_get(cfg, 'control.keyboard.steer_left_key', 'a')} "
+        f"right={cfg_get(cfg, 'control.keyboard.steer_right_key', 'd')} "
+        f"throttle={cfg_get(cfg, 'control.keyboard.throttle_key', 'w')} "
+        f"brake={cfg_get(cfg, 'control.keyboard.brake_key', 's')}"
+    )
+    print(
+        "keyboard thresholds: "
+        f"steering={cfg_get(cfg, 'control.keyboard.steering_threshold', 0.15)} "
+        f"throttle={cfg_get(cfg, 'control.keyboard.throttle_threshold', 0.08)} "
+        f"brake={cfg_get(cfg, 'control.keyboard.brake_threshold', 0.08)}"
+    )
+    pwm_period_s = float(cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s", 0.0))
+    if pwm_period_s > 0.0:
+        print(f"keyboard longitudinal pwm: enabled period_s={pwm_period_s}")
+    else:
+        print("keyboard longitudinal pwm: disabled")
+    if platform.system() != "Windows":
+        print("control status: keyboard sink unsupported on this platform")
+        return "keyboard sink unsupported"
+    print("control status: control path ready")
+    print("  - Windows keyboard injection sink is configured.")
+    print("  - Keep the ATS window focused during live writes.")
+    return "control path ready"
+
+
+def _inspect_hybrid_target(cfg: dict, ats_running: bool) -> str:
+    print("hybrid routing:")
+    print("  - steering / blinkers -> module shared-memory control plugin")
+    print("  - throttle / brake -> Windows keyboard injection")
+    module_category = _inspect_module_target(cfg, ats_running)
+    keyboard_category = _inspect_keyboard_target(cfg)
+    if module_category == "control path ready" and keyboard_category == "control path ready":
+        print("hybrid status: control path ready")
+        return "control path ready"
+    print("hybrid status: hybrid control path incomplete")
+    print(f"  - module={module_category}")
+    print(f"  - keyboard={keyboard_category}")
+    return "hybrid control path incomplete"
+
+
+def _inspect_module_target(cfg: dict, ats_running: bool) -> str:
     module_name = cfg_get(cfg, "control.module_name")
     class_name = cfg_get(cfg, "control.class_name")
     field_mapping = dict(cfg_get(cfg, "control.field_mapping", {}))
+    module_search_paths = list(cfg_get(cfg, "control.module_search_paths", []))
     plugin_dll_name = cfg_get(cfg, "control.plugin_dll_name", "scs_sdk_controller.dll")
     game_dir = find_ats_game_dir()
     plugin_path = None
@@ -66,9 +200,12 @@ def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
         plugin_present = plugin_path.exists()
 
     print(f"module target: {module_name}.{class_name}")
+    if module_search_paths:
+        print(f"module search paths: {module_search_paths}")
     try:
-        module = importlib.import_module(module_name)
-        klass = getattr(module, class_name)
+        with control_module_import_scope(module_search_paths):
+            module = importlib.import_module(module_name)
+            klass = getattr(module, class_name)
         python_module_present = True
     except Exception as exc:
         print(f"module import: FAILED ({exc})")
@@ -86,7 +223,7 @@ def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
             mapping_error=probe.error,
             plugin_path=plugin_path,
         )
-        return
+        return "Python control module missing"
 
     print("module import: OK")
     annotations = dict(getattr(klass, "__annotations__", {}))
@@ -125,7 +262,7 @@ def _inspect_module_target(cfg: dict, ats_running: bool) -> None:
 
     print(f"expected control plugin DLL: {plugin_path if plugin_path else plugin_dll_name}")
     print(f"plugin DLL present: {'yes' if plugin_present else 'no'}")
-    _print_control_category(
+    return _print_control_category(
         ats_running=ats_running,
         plugin_present=plugin_present,
         python_module_present=python_module_present,
@@ -147,7 +284,7 @@ def _print_control_category(
     mapping_present: bool,
     mapping_error: str | None,
     plugin_path: Path | None,
-) -> None:
+) -> str:
     category, details = classify_control_probe_status(
         ControlProbeStatus(
             ats_running=ats_running,
@@ -164,6 +301,7 @@ def _print_control_category(
         print(f"  - expected plugin DLL missing: {plugin_path}")
     for detail in details:
         print(f"  - {detail}")
+    return category
 
 
 if __name__ == "__main__":

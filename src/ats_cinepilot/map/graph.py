@@ -27,6 +27,12 @@ class Edge:
         return polyline_length(self.points)
 
 
+@dataclass(slots=True)
+class EdgeTraversal:
+    edge_id: str
+    travel_direction: str
+
+
 def polyline_length(points: Iterable[tuple[float, float]]) -> float:
     pts = list(points)
     if len(pts) < 2:
@@ -58,16 +64,41 @@ class RoadGraph:
         ids = self._outgoing_by_node.get(edge.end_node_id, [])
         return [self.edges[eid] for eid in ids]
 
-    def edge_heading_start(self, edge_id: str) -> float:
+    def continuation_traversals(self, edge_id: str, travel_direction: str = "forward") -> list[EdgeTraversal]:
         edge = self.edges[edge_id]
-        if len(edge.points) < 2:
+        exit_node_id = edge.end_node_id if travel_direction == "forward" else edge.start_node_id
+        traversals: list[EdgeTraversal] = []
+        seen: set[tuple[str, str]] = set()
+        for next_edge_id in self._outgoing_by_node.get(exit_node_id, []):
+            key = (next_edge_id, "forward")
+            if next_edge_id == edge_id or key in seen:
+                continue
+            traversals.append(EdgeTraversal(next_edge_id, "forward"))
+            seen.add(key)
+        for next_edge_id in self._incoming_by_node.get(exit_node_id, []):
+            key = (next_edge_id, "reverse")
+            if next_edge_id == edge_id or key in seen:
+                continue
+            traversals.append(EdgeTraversal(next_edge_id, "reverse"))
+            seen.add(key)
+        return traversals
+
+    def edge_points(self, edge_id: str, travel_direction: str = "forward") -> list[tuple[float, float]]:
+        edge = self.edges[edge_id]
+        if travel_direction == "reverse":
+            return list(reversed(edge.points))
+        return list(edge.points)
+
+    def edge_heading_start(self, edge_id: str, travel_direction: str = "forward") -> float:
+        pts = self.edge_points(edge_id, travel_direction)
+        if len(pts) < 2:
             return 0.0
-        (x1, z1), (x2, z2) = edge.points[0], edge.points[1]
+        (x1, z1), (x2, z2) = pts[0], pts[1]
         return math.atan2(z2 - z1, x2 - x1)
 
-    def edge_heading_end(self, edge_id: str) -> float:
-        edge = self.edges[edge_id]
-        if len(edge.points) < 2:
+    def edge_heading_end(self, edge_id: str, travel_direction: str = "forward") -> float:
+        pts = self.edge_points(edge_id, travel_direction)
+        if len(pts) < 2:
             return 0.0
-        (x1, z1), (x2, z2) = edge.points[-2], edge.points[-1]
+        (x1, z1), (x2, z2) = pts[-2], pts[-1]
         return math.atan2(z2 - z1, x2 - x1)

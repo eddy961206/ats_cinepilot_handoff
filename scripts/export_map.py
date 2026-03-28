@@ -17,7 +17,11 @@ from ats_cinepilot.ops.config import cfg_get, resolve_config
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", choices=["trucksim", "trucksim-demo", "ts-map"], required=True)
+    parser.add_argument(
+        "--source",
+        choices=["trucksim", "trucksim-demo", "trucksim-ats-geojson", "ts-map"],
+        required=True,
+    )
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--compact", action="store_true", help="Write compact JSON instead of indented JSON.")
@@ -32,7 +36,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.source in {"trucksim", "trucksim-demo"}:
+    if args.source in {"trucksim", "trucksim-demo", "trucksim-ats-geojson"}:
         graph = load_trucksim_graph(args.input)
     else:
         graph = load_ts_map_graph(args.input)
@@ -54,13 +58,21 @@ def main() -> None:
 
     graph.metadata.update(
         {
-            "graph_source": "trucksim_demo_graph_region" if args.source in {"trucksim", "trucksim-demo"} else args.source,
+            "graph_source": _graph_source_name(args.source),
             "alignment_mode": "ats_absolute_identity",
             "source_input": args.input,
         }
     )
     save_graph_cache(graph, args.output, indent=None if args.compact else 2)
     print(f"saved internal graph cache to {args.output}")
+
+
+def _graph_source_name(source: str) -> str:
+    if source in {"trucksim", "trucksim-demo"}:
+        return "trucksim_demo_graph_region"
+    if source == "trucksim-ats-geojson":
+        return "trucksim_local_geojson_region"
+    return source
 
 
 def read_center_from_config(config_paths: list[str]) -> tuple[float, float]:
