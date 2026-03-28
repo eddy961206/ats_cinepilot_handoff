@@ -1,0 +1,217 @@
+{
+  "metadata": {
+    "graph_source": "curated_dense_local_corridor_graph",
+    "alignment_mode": "ats_absolute_identity",
+    "graph_kind": "curated_demo",
+    "corridor_name": "dense_curated_freeway_demo",
+    "source_cache_path": "data/maps/cache/ats_usa_region_dense_local_geojson_8km.json",
+    "contract_path": "C:\\workspaces\\python_workspace\\ats_cinepilot_handoff\\configs\\corridors\\demo_dense_curated_corridor.yaml",
+    "translation_world_x_m": 0.0,
+    "translation_world_z_m": 0.0
+  },
+  "nodes": [
+    {
+      "node_id": "n0",
+      "x": -74372.21340540476,
+      "z": 27451.342477144302
+    },
+    {
+      "node_id": "n1",
+      "x": -74408.71062506846,
+      "z": 27216.018385892832
+    },
+    {
+      "node_id": "n2",
+      "x": -74438.6750715137,
+      "z": 26909.849355655173
+    },
+    {
+      "node_id": "n3",
+      "x": -74425.82666472196,
+      "z": 26658.278042634527
+    },
+    {
+      "node_id": "n4",
+      "x": -74390.47068555756,
+      "z": 26383.22937766688
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "dense_seg_01",
+      "start_node_id": "n0",
+      "end_node_id": "n1",
+      "points": [
+        [
+          -74372.21340540476,
+          27451.342477144302
+        ],
+        [
+          -74384.06655061025,
+          27405.2503269645
+        ],
+        [
+          -74392.8220395304,
+          27358.27228454604
+        ],
+        [
+          -74399.27964287988,
+          27310.902679270293
+        ],
+        [
+          -74404.29274804628,
+          27263.403149146307
+        ],
+        [
+          -74408.71062506846,
+          27216.018385892832
+        ]
+      ],
+      "speed_limit_mps": null,
+      "road_class": "freeway",
+      "metadata": {
+        "type": "road",
+        "roadType": "freeway",
+        "leftLanes": 2,
+        "rightLanes": 0,
+        "shoulderSpaceLeft": 3.5,
+        "shoulderSpaceRight": 3.5,
+        "hidden": false,
+        "secret": false,
+        "lookToken": "us_tmpl0",
+        "dlcGuard": 2,
+        "startNodeUid": "62b5c75a0c304d1",
+        "endNodeUid": "62b5d88b1c30000",
+        "synthetic_reverse": false,
+        "source_edge_id": "62b5d88d5d30001__fwd",
+        "source_travel_direction": "forward",
+        "curated_corridor_name": "dense_curated_freeway_demo"
+      }
+    },
+    {
+      "edge_id": "dense_seg_02",
+      "start_node_id": "n1",
+      "end_node_id": "n2",
+      "points": [
+        [
+          -74408.71062506846,
+          27216.018385892832
+        ],
+        [
+          -74426.83244304507,
+          27063.166009275366
+        ],
+        [
+          -74438.6750715137,
+          26909.849355655173
+        ]
+      ],
+      "speed_limit_mps": null,
+      "road_class": "freeway",
+      "metadata": {
+        "type": "road",
+        "roadType": "freeway",
+        "leftLanes": 2,
+        "rightLanes": 0,
+        "shoulderSpaceLeft": 3.5,
+        "shoulderSpaceRight": 3.5,
+        "hidden": false,
+        "secret": false,
+        "lookToken": "us_tmpl0",
+        "dlcGuard": 2,
+        "startNodeUid": "62b5d88b1c30000",
+        "endNodeUid": "62b5c759473048d",
+        "synthetic_reverse": false,
+        "source_edge_id": "62b5c75b1a3011a__fwd",
+        "source_travel_direction": "forward",
+        "curated_corridor_name": "dense_curated_freeway_demo"
+      }
+    },
+    {
+      "edge_id": "dense_seg_03",
+      "start_node_id": "n2",
+      "end_node_id": "n3",
+      "points": [
+        [
+          -74438.6750715137,
+          26909.849355655173
+        ],
+        [
+          -74437.97960920005,
+          26825.5695648406
+        ],
+        [
+          -74433.79194485115,
+          26741.70544139119
+        ],
+        [
+          -74425.82666472196,
+          26658.278042634527
+        ]
+      ],
+      "speed_limit_mps": null,
+      "road_class": "freeway",
+      "metadata": {
+        "type": "road",
+        "roadType": "freeway",
+        "leftLanes": 2,
+        "rightLanes": 0,
+        "shoulderSpaceLeft": 3.5,
+        "shoulderSpaceRight": 3.5,
+        "hidden": false,
+        "secret": false,
+        "lookToken": "us_tmpl0",
+        "dlcGuard": 2,
+        "startNodeUid": "62b5c759473048d",
+        "endNodeUid": "62b676dc2c30000",
+        "synthetic_reverse": false,
+        "source_edge_id": "62b676d1a430001__fwd",
+        "source_travel_direction": "forward",
+        "curated_corridor_name": "dense_curated_freeway_demo"
+      }
+    },
+    {
+      "edge_id": "dense_seg_04",
+      "start_node_id": "n3",
+      "end_node_id": "n4",
+      "points": [
+        [
+          -74425.82666472196,
+          26658.278042634527
+        ],
+        [
+          -74411.61816456095,
+          26566.34038766985
+        ],
+        [
+          -74396.95956052604,
+          26475.026903705784
+        ],
+        [
+          -74390.47068555756,
+          26383.22937766688
+        ]
+      ],
+      "speed_limit_mps": null,
+      "road_class": "freeway",
+      "metadata": {
+        "type": "road",
+        "roadType": "freeway",
+        "leftLanes": 2,
+        "rightLanes": 0,
+        "shoulderSpaceLeft": 3.5,
+        "shoulderSpaceRight": 3.5,
+        "hidden": false,
+        "secret": false,
+        "lookToken": "us_tmpl0",
+        "dlcGuard": 2,
+        "startNodeUid": "62b676dc2c30000",
+        "endNodeUid": "62b6770e4830000",
+        "synthetic_reverse": false,
+        "source_edge_id": "62b67708e830001__fwd",
+        "source_travel_direction": "forward",
+        "curated_corridor_name": "dense_curated_freeway_demo"
+      }
+    }
+  ]
+}

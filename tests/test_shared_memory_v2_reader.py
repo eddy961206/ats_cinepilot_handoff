@@ -121,6 +121,50 @@ def test_shared_memory_v2_decoder_prefers_authoritative_absolute_pose_when_confi
     assert decoder.last_state.absolute_world_z_m == pytest.approx(23734.7)
 
 
+def test_shared_memory_v2_decoder_marks_world_absolute_heading_ready_after_absolute_delta():
+    decoder = SharedMemoryV2Decoder(
+        SharedMemoryV2Config(
+            absolute_x_offset=285,
+            absolute_z_offset=301,
+            absolute_value_format="f64",
+            pose_frame_mode="world_absolute",
+        )
+    )
+
+    first = decoder.decode(
+        _build_shared_memory_v2_buffer(
+            velocity_x_mps=0.0,
+            velocity_z_mps=0.0,
+            speed_mps=0.0,
+            absolute_x_m=1000.0,
+            absolute_z_m=2000.0,
+        ),
+        mono_time_s=10.0,
+    )
+    state_after_first = decoder.last_state
+    second = decoder.decode(
+        _build_shared_memory_v2_buffer(
+            tick=1005.0,
+            velocity_x_mps=4.0,
+            velocity_z_mps=0.0,
+            speed_mps=4.0,
+            absolute_x_m=1008.0,
+            absolute_z_m=2000.0,
+        ),
+        mono_time_s=12.0,
+    )
+
+    assert first.pose.world_x == pytest.approx(1000.0)
+    assert first.pose.world_z == pytest.approx(2000.0)
+    assert state_after_first is not None
+    assert state_after_first.anchor_heading_locked is False
+    assert second.pose.world_x == pytest.approx(1008.0)
+    assert second.pose.world_z == pytest.approx(2000.0)
+    assert decoder.last_state.heading_source == "absolute_position_delta"
+    assert decoder.last_state.anchor_heading_locked is True
+    assert decoder.last_state.anchor_heading_rad == pytest.approx(second.pose.yaw_rad)
+
+
 def test_shared_memory_v2_decoder_can_anchor_authoritative_absolute_pose_to_local_frame():
     decoder = SharedMemoryV2Decoder(
         SharedMemoryV2Config(

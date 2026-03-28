@@ -54,3 +54,17 @@ def test_demo_active_gentle_curve_profile_resolves_expected_demo_contract():
     assert cfg_get(cfg, "truck.preferred_speed_cap_mps") == 3.0
     assert cfg_get(cfg, "control.keyboard.longitudinal_pwm_period_s") == 0.25
     assert cfg_get(cfg, "logging.log_jsonl_path") == "data/logs/demo_active_gentle_curve.jsonl"
+
+
+def test_demo_active_dense_corridor_profile_resolves_expected_demo_contract():
+    cfg = resolve_config(["configs/demo_active_dense_corridor.yaml"])
+
+    assert cfg_get(cfg, "telemetry.source") == "shared_memory_v2"
+    assert cfg_get(cfg, "control.sink") == "hybrid"
+    assert cfg_get(cfg, "map.cache_path") == "data/maps/cache/demo_dense_curated_corridor_graph.json"
+    assert cfg_get(cfg, "map.source_name") == "curated_dense_local_corridor_graph"
+    assert cfg_get(cfg, "map.alignment_mode") == "ats_absolute_identity"
+    assert cfg_get(cfg, "demo.enabled") is True
+    assert cfg_get(cfg, "demo.contract_path") == "configs/corridors/demo_dense_curated_corridor.yaml"
+    assert cfg_get(cfg, "demo.max_speed_mps") == 2.5
+    assert cfg_get(cfg, "logging.log_jsonl_path") == "data/logs/demo_active_dense_corridor.jsonl"

@@ -30,6 +30,7 @@ def summarize_log(path: Path) -> dict:
     selected_reason_counts: Counter[str] = Counter()
     direction_confidence_counts: Counter[str] = Counter()
     demo_guard_reason_counts: Counter[str] = Counter()
+    corridor_edge_sequence: list[str] = []
     match_values: list[float] = []
     route_values: list[float] = []
     cte_values: list[float] = []
@@ -41,6 +42,7 @@ def summarize_log(path: Path) -> dict:
     brake_command_count = 0
     first_match_lost_step: int | None = None
     first_route_confidence_low_step: int | None = None
+    corridor_highest_index: int | None = None
     last_status: dict = {}
     total_steps = 0
 
@@ -62,6 +64,21 @@ def summarize_log(path: Path) -> dict:
                 direction_confidence_counts[str(status["direction_confidence_state"])] += 1
             if status.get("demo_guard_reason") is not None:
                 demo_guard_reason_counts[str(status["demo_guard_reason"])] += 1
+            current_edge_id = None
+            matched = row.get("matched")
+            if isinstance(matched, dict):
+                current_edge_id = matched.get("edge_id")
+            if current_edge_id is None:
+                current_edge_id = status.get("selected_edge_id")
+            if current_edge_id and (not corridor_edge_sequence or corridor_edge_sequence[-1] != str(current_edge_id)):
+                corridor_edge_sequence.append(str(current_edge_id))
+            if status.get("demo_corridor_highest_index") is not None:
+                current_highest_index = int(status["demo_corridor_highest_index"])
+                corridor_highest_index = (
+                    current_highest_index
+                    if corridor_highest_index is None
+                    else max(corridor_highest_index, current_highest_index)
+                )
             if safety == "MATCH_LOST" and first_match_lost_step is None:
                 first_match_lost_step = index
             if safety == "ROUTE_CONFIDENCE_LOW" and first_route_confidence_low_step is None:
@@ -99,6 +116,8 @@ def summarize_log(path: Path) -> dict:
         "selected_reason_counts": dict(selected_reason_counts),
         "direction_confidence_state_counts": dict(direction_confidence_counts),
         "demo_guard_reason_counts": dict(demo_guard_reason_counts),
+        "corridor_edge_sequence": corridor_edge_sequence,
+        "corridor_highest_index": corridor_highest_index,
         "first_match_lost_step": first_match_lost_step,
         "first_route_confidence_low_step": first_route_confidence_low_step,
         "match_confidence_min": min(match_values) if match_values else None,
@@ -150,6 +169,13 @@ def print_summary(summary: dict) -> None:
     print(f"  graph_failures={summary['graph_failure_counts']}")
     print(f"  selected_reasons={summary['selected_reason_counts']}")
     print(f"  direction_confidence={summary['direction_confidence_state_counts']}")
+    if summary.get("corridor_edge_sequence"):
+        print(
+            "  corridor_edge_sequence={seq} corridor_highest_index={highest}".format(
+                seq=summary["corridor_edge_sequence"],
+                highest=summary.get("corridor_highest_index"),
+            )
+        )
     print(
         "  steering_abs_max={steering_max} non_trivial_steering_count={steering_count} "
         "throttle_command_count={throttle_count} brake_command_count={brake_count}".format(

@@ -1,0 +1,73 @@
+extends:
+  - "live_probe_moza_shared_memory.yaml"
+  - "corridors/demo_dense_curated_corridor.yaml"
+
+game:
+  mode: "active_demo"
+
+demo:
+  enabled: true
+
+telemetry:
+  pose_frame_mode: "world_absolute"
+
+control:
+  sink: "hybrid"
+  module_search_paths:
+    - "../_ext/scs-sdk-controller"
+  keyboard:
+    steer_left_key: "a"
+    steer_right_key: "d"
+    throttle_key: "w"
+    brake_key: "s"
+    steering_threshold: 0.01
+    throttle_threshold: 0.08
+    brake_threshold: 0.08
+    longitudinal_pwm_period_s: 0.25
+
+map:
+  query_radius_m: 20.0
+  heading_weight: 0.40
+  distance_weight: 0.50
+  hysteresis_weight: 0.10
+  continuity_distance_slack_m: 0.5
+  reverse_heading_min_advantage_m: 1.0
+  reverse_heading_penalty: 0.5
+  horizon_m: 90.0
+
+truck:
+  preferred_speed_cap_mps: 0.9
+
+planner:
+  curve_speed_floor_mps: 2.5
+  junction_speed_cap_mps: 2.5
+
+control_tuning:
+  steering_gain: 0.9
+  max_steering_cmd: 0.30
+  min_lookahead_m: 5.0
+  max_lookahead_m: 14.0
+  lookahead_speed_gain: 0.5
+  kp: 0.18
+  ki: 0.02
+  kd: 0.04
+  brake_bias: 0.05
+  deadband_mps: 0.15
+  integral_limit: 20.0
+
+safety:
+  min_map_match_confidence: 0.99
+  min_route_confidence: 0.69
+  max_cross_track_error_m: 0.22
+  max_heading_error_deg: 6.0
+  overspeed_curve_margin_kph: 1.0
+
+manual_override:
+  flag_path: "data/runtime/demo_override.flag"
+
+logging:
+  log_jsonl_path: "data/logs/demo_active_dense_corridor.jsonl"
+
+debug:
+  status_log_interval_frames: 1
+  loop_sleep_ms: 50

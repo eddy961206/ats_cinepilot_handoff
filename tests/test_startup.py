@@ -3,7 +3,7 @@ from ats_cinepilot.ops.startup import build_startup_summary, validate_startup_re
 
 def test_build_startup_summary_lists_runtime_choices():
     cfg = {
-        "telemetry": {"source": "shared_memory_v2"},
+        "telemetry": {"source": "shared_memory_v2", "pose_frame_mode": "world_absolute"},
         "control": {"sink": "noop"},
         "hud": {"preset_path": ""},
         "map": {
@@ -20,6 +20,7 @@ def test_build_startup_summary_lists_runtime_choices():
     lines = build_startup_summary(cfg, mode="shadow")
 
     assert any("telemetry_source=shared_memory_v2" in line for line in lines)
+    assert any("telemetry_pose_frame=world_absolute" in line for line in lines)
     assert any("control_sink=noop" in line for line in lines)
     assert any("route_provider=none" in line for line in lines)
     assert any("hud_capture=disabled" in line for line in lines)
@@ -41,7 +42,7 @@ def test_validate_startup_requirements_blocks_probe_only_live_source():
 
 def test_build_startup_summary_lists_demo_cage_details():
     cfg = {
-        "telemetry": {"source": "shared_memory_v2"},
+        "telemetry": {"source": "shared_memory_v2", "pose_frame_mode": "anchored_local"},
         "control": {"sink": "module"},
         "hud": {"preset_path": ""},
         "map": {
@@ -168,7 +169,7 @@ def test_validate_startup_requirements_rejects_demo_graph_contract_mismatch():
 
 def test_build_startup_summary_lists_gentle_curve_demo_details():
     cfg = {
-        "telemetry": {"source": "shared_memory_v2"},
+        "telemetry": {"source": "shared_memory_v2", "pose_frame_mode": "anchored_local"},
         "control": {
             "sink": "hybrid",
             "keyboard": {"longitudinal_pwm_period_s": 0.25},
@@ -199,3 +200,57 @@ def test_build_startup_summary_lists_gentle_curve_demo_details():
     assert any("demo_max_speed_mps=3.0" in line for line in lines)
     assert any("demo_focus_required=yes" in line for line in lines)
     assert any("keyboard_longitudinal_pwm_s=0.25" in line for line in lines)
+
+
+def test_build_startup_summary_lists_dense_corridor_contract_details():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2", "pose_frame_mode": "world_absolute"},
+        "control": {
+            "sink": "hybrid",
+            "keyboard": {"longitudinal_pwm_period_s": 0.25},
+        },
+        "map": {
+            "source_name": "curated_dense_local_corridor_graph",
+            "alignment_mode": "ats_absolute_identity",
+        },
+        "demo": {
+            "enabled": True,
+            "corridor_name": "dense_curated_freeway_demo",
+            "contract_path": "configs/corridors/demo_dense_curated_corridor.yaml",
+            "approved_edge_ids": ["edge_a", "edge_b"],
+            "approved_edge_sequence": ["edge_a", "edge_b"],
+            "max_speed_mps": 2.5,
+        },
+    }
+
+    lines = build_startup_summary(cfg, mode="active")
+
+    assert any("demo_enabled=yes corridor=dense_curated_freeway_demo" in line for line in lines)
+    assert any("demo_edge_ids=edge_a,edge_b" in line for line in lines)
+    assert any("demo_edge_sequence=edge_a -> edge_b" in line for line in lines)
+    assert any("demo_contract_path=configs/corridors/demo_dense_curated_corridor.yaml" in line for line in lines)
+
+
+def test_validate_startup_requirements_rejects_identity_alignment_without_world_pose():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2", "pose_frame_mode": "anchored_local"},
+        "control": {"sink": "hybrid"},
+        "map": {
+            "source_name": "curated_dense_local_corridor_graph",
+            "alignment_mode": "ats_absolute_identity",
+        },
+        "demo": {
+            "enabled": True,
+            "corridor_name": "dense_curated_freeway_demo",
+            "approved_graph_source": "curated_dense_local_corridor_graph",
+            "approved_alignment_mode": "ats_absolute_identity",
+            "approved_edge_ids": ["dense_seg_01"],
+        },
+    }
+
+    issues = validate_startup_requirements(cfg, mode="active")
+
+    assert (
+        "demo active mode with map.alignment_mode=ats_absolute_identity "
+        "requires telemetry.pose_frame_mode=world_absolute."
+    ) in issues
