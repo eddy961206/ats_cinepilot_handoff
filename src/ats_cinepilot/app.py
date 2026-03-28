@@ -46,12 +46,16 @@ from ats_cinepilot.map.spatial_index import SimpleSpatialIndex
 from ats_cinepilot.ops.config import cfg_get
 from ats_cinepilot.ops.recorder import JsonlRecorder
 from ats_cinepilot.ops.telemetry_health import TelemetryFreshnessTracker
+from ats_cinepilot.perception.cv_observer import CvObserver, CvObserverConfig
+from ats_cinepilot.perception.vehicle_detector import VehicleDetectorConfig
+from ats_cinepilot.perception.lane_observer import LaneObserverConfig
 from ats_cinepilot.planner.branch_selector import BranchSelector, BranchSelectorConfig
 from ats_cinepilot.planner.preview_path import PreviewPlanner, PreviewPlannerConfig
 from ats_cinepilot.planner.speed_profile import SpeedPlanner, SpeedPlannerConfig
 from ats_cinepilot.route.fusion import build_effective_route_hint
 from ats_cinepilot.route.providers import HudRouteProvider, HudRouteProviderConfig, NullRouteProvider
 from ats_cinepilot.safety.arbiter import RuleBasedSafetyPolicy, SafetyConfig
+from ats_cinepilot.safety.cv_guard import CvGuardConfig, evaluate_cv_guard
 from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoSafetyCage, resolve_demo_command
 
 logger = logging.getLogger(__name__)
@@ -109,6 +113,38 @@ def _maybe_text(value: object) -> str | None:
     return text or None
 
 
+def _build_vehicle_detector_config(cfg: dict[str, object]) -> VehicleDetectorConfig:
+    return VehicleDetectorConfig(
+        model_dir=str(
+            cfg_get(
+                cfg,
+                "cv.vehicles.model_dir",
+                "data/models/ssd_mobilenet_v3_large_coco_2020_01_14",
+            )
+        ),
+        confidence_threshold=float(cfg_get(cfg, "cv.vehicles.confidence_threshold", 0.35)),
+        download_allowed=bool(cfg_get(cfg, "cv.vehicles.download_allowed", True)),
+        model_url=str(cfg_get(cfg, "cv.vehicles.model_url", VehicleDetectorConfig.model_url)),
+        pbtxt_url=str(cfg_get(cfg, "cv.vehicles.pbtxt_url", VehicleDetectorConfig.pbtxt_url)),
+        model_sha256=str(cfg_get(cfg, "cv.vehicles.model_sha256", VehicleDetectorConfig.model_sha256)),
+        pbtxt_sha256=str(cfg_get(cfg, "cv.vehicles.pbtxt_sha256", VehicleDetectorConfig.pbtxt_sha256)),
+    )
+
+
+def _apply_cv_guard_to_decision(
+    decision: SafetyDecision,
+    *,
+    cv_guard_triggered: bool,
+    cv_guard_enabled: bool,
+    observer_exception: bool = False,
+) -> SafetyDecision:
+    if observer_exception and cv_guard_enabled:
+        return SafetyDecision(False, reason=DisengageReason.DEMO_GUARD)
+    if cv_guard_triggered:
+        return SafetyDecision(False, reason=DisengageReason.DEMO_GUARD)
+    return decision
+
+
 def _should_apply_active_control(
     decision: SafetyDecision,
     *,
@@ -143,6 +179,8 @@ class RuntimeContext:
     telemetry_health: TelemetryFreshnessTracker
     demo_cage: DemoSafetyCage | None = None
     capture_source: any = None
+    cv_observer: CvObserver | None = None
+    cv_guard_config: CvGuardConfig | None = None
     status_log_interval_frames: int = 25
     loop_sleep_ms: int = 0
     graph_source: str = "graph_cache"
@@ -267,9 +305,10 @@ class AutopilotApp:
         )
 
         capture_source = None
+        cv_enabled = bool(cfg_get(cfg, "cv.enabled", False))
         route_provider = NullRouteProvider()
         hud_preset = cfg_get(cfg, "hud.preset_path", "")
-        if hud_preset:
+        if hud_preset or cv_enabled:
             backend = cfg_get(cfg, "capture.backend", "dxcam")
             region = tuple(cfg_get(cfg, "capture.region", [0, 0, 1920, 1080]))
             if backend == "dxcam":
@@ -283,13 +322,14 @@ class AutopilotApp:
             else:
                 capture_source = MSSCaptureSource(MSSConfig(region=region))
             capture_source.start()
-            route_provider = HudRouteProvider(
-                capture_source,
-                HudRouteProviderConfig(
-                    preset_path=hud_preset,
-                    signature_check=bool(cfg_get(cfg, "hud.signature_check", True)),
-                ),
-            )
+            if hud_preset:
+                route_provider = HudRouteProvider(
+                    capture_source,
+                    HudRouteProviderConfig(
+                        preset_path=hud_preset,
+                        signature_check=bool(cfg_get(cfg, "hud.signature_check", True)),
+                    ),
+                )
 
         branch_selector = BranchSelector(graph, BranchSelectorConfig())
         preview_planner = PreviewPlanner(
@@ -413,6 +453,43 @@ class AutopilotApp:
                 )
             )
 
+        cv_observer = None
+        cv_guard_config = None
+        if cv_enabled:
+            cv_observer = CvObserver(
+                CvObserverConfig(
+                    enabled=True,
+                    lane_enabled=bool(cfg_get(cfg, "cv.lane.enabled", True)),
+                    vehicles_enabled=bool(cfg_get(cfg, "cv.vehicles.enabled", True)),
+                    barrier_enabled=bool(cfg_get(cfg, "cv.barrier.enabled", False)),
+                    show_window=bool(cfg_get(cfg, "cv.show_window", False)),
+                    save_video=bool(cfg_get(cfg, "cv.save_video", True)),
+                    save_frames=bool(cfg_get(cfg, "cv.save_frames", False)),
+                    artifact_dir=str(cfg_get(cfg, "cv.artifact_dir", "data/artifacts/cv/default")),
+                    summary_jsonl_path=cfg_get(cfg, "cv.summary_jsonl_path", None),
+                ),
+                lane_config=LaneObserverConfig(
+                    roi_top_ratio=float(cfg_get(cfg, "cv.lane.roi_top_ratio", 0.55)),
+                    line_threshold_value=int(cfg_get(cfg, "cv.lane.line_threshold_value", 180)),
+                ),
+                vehicle_config=_build_vehicle_detector_config(cfg),
+            )
+            cv_guard_config = CvGuardConfig(
+                enabled=bool(cfg_get(cfg, "cv.guard.enabled", False)),
+                enable_lane_guard=bool(cfg_get(cfg, "cv.guard.enable_lane_guard", False)),
+                enable_lead_vehicle_guard=bool(
+                    cfg_get(cfg, "cv.guard.enable_lead_vehicle_guard", True)
+                ),
+                min_lane_confidence=float(cfg_get(cfg, "cv.guard.min_lane_confidence", 0.35)),
+                lead_vehicle_min_confidence=float(
+                    cfg_get(cfg, "cv.guard.lead_vehicle_min_confidence", 0.60)
+                ),
+                lead_vehicle_min_bottom_y_px=float(
+                    cfg_get(cfg, "cv.guard.lead_vehicle_min_bottom_y_px", 580.0)
+                ),
+                barrier_guard_enabled=bool(cfg_get(cfg, "cv.guard.enable_barrier_guard", False)),
+            )
+
         return RuntimeContext(
             telemetry_source=telemetry_source,
             control_sink=control_sink,
@@ -429,6 +506,8 @@ class AutopilotApp:
             telemetry_health=telemetry_health,
             demo_cage=demo_cage,
             capture_source=capture_source,
+            cv_observer=cv_observer,
+            cv_guard_config=cv_guard_config,
             status_log_interval_frames=max(1, int(cfg_get(cfg, "debug.status_log_interval_frames", 25))),
             loop_sleep_ms=max(0, int(cfg_get(cfg, "debug.loop_sleep_ms", 0))),
             graph_source=str(
@@ -440,6 +519,11 @@ class AutopilotApp:
         )
 
     def close(self) -> None:
+        if self.ctx.cv_observer is not None:
+            try:
+                self.ctx.cv_observer.close()
+            except Exception:
+                logger.exception("cv observer close failed")
         if self.ctx.capture_source is not None:
             try:
                 self.ctx.capture_source.stop()
@@ -505,6 +589,8 @@ class AutopilotApp:
 
         telemetry_state = getattr(self.ctx.telemetry_source, "last_state", None)
         matcher_diagnostics = self.ctx.matcher.last_diagnostics
+        cv_observation = None
+        cv_guard_reason = None
         demo_status = None
         demo_command = command
         demo_brake_assist_active = False
@@ -528,6 +614,51 @@ class AutopilotApp:
             demo_control_allowed = demo_status.allow_control
             if decision.allow_control and not demo_status.allow_control:
                 decision = SafetyDecision(False, reason=DisengageReason.DEMO_GUARD)
+
+        if self.ctx.cv_observer is not None and self.ctx.capture_source is not None:
+            try:
+                capture_frame = self.ctx.capture_source.grab()
+                cv_observation = self.ctx.cv_observer.analyze(
+                    capture_frame,
+                    frame_index=self._step_count + 1,
+                )
+                cv_guard = evaluate_cv_guard(cv_observation, self.ctx.cv_guard_config or CvGuardConfig())
+                cv_guard_reason = cv_guard.reason
+                decision = _apply_cv_guard_to_decision(
+                    decision,
+                    cv_guard_triggered=cv_guard.triggered,
+                    cv_guard_enabled=bool(
+                        self.ctx.cv_guard_config is not None and self.ctx.cv_guard_config.enabled
+                    ),
+                )
+                cv_observation = self.ctx.cv_observer.publish(
+                    capture_frame,
+                    observation=cv_observation,
+                    telemetry=frame,
+                    matched=matched,
+                    hint=effective_hint,
+                    path=path,
+                    speed_target=target,
+                    safety=decision,
+                    mode=self.ctx.state_machine.mode,
+                    extra_status={
+                        "cv_guard_reason": cv_guard_reason,
+                        "graph_source": self.ctx.graph_source,
+                        "alignment_mode": self.ctx.alignment_mode,
+                        "selected_edge_id": matched.edge_id if matched else None,
+                    },
+                )
+            except Exception:
+                logger.exception("cv observer failed")
+                cv_guard_reason = "observer_exception"
+                decision = _apply_cv_guard_to_decision(
+                    decision,
+                    cv_guard_triggered=False,
+                    cv_guard_enabled=bool(
+                        self.ctx.cv_guard_config is not None and self.ctx.cv_guard_config.enabled
+                    ),
+                    observer_exception=True,
+                )
 
         try:
             apply_active_control = self.mode == "active" and _should_apply_active_control(
@@ -619,13 +750,24 @@ class AutopilotApp:
                         self.ctx.demo_cage.highest_sequence_index if self.ctx.demo_cage is not None else None
                     ),
                     "manual_override_active": manual_override_active,
+                    "cv_enabled": self.ctx.cv_observer is not None,
+                    "lane_detected": cv_observation.lane.lane_detected if cv_observation else False,
+                    "lane_confidence": cv_observation.lane.lane_confidence if cv_observation else 0.0,
+                    "lane_offset_estimate_px": cv_observation.lane.lane_offset_px if cv_observation else None,
+                    "lead_vehicle_detected": cv_observation.lead_vehicle is not None if cv_observation else False,
+                    "lead_vehicle_confidence": (
+                        cv_observation.lead_vehicle.confidence if cv_observation and cv_observation.lead_vehicle else 0.0
+                    ),
+                    "visual_barrier_risk": cv_observation.visual_barrier_risk if cv_observation else False,
+                    "cv_guard_reason": cv_guard_reason,
+                    "cv_overlay_path": cv_observation.overlay_path if cv_observation else None,
                 },
             })
 
         self._step_count += 1
         if self._step_count % self.ctx.status_log_interval_frames == 0:
             logger.info(
-                "step=%s mode=%s speed=%.2f fresh_ms=%.1f graph=%s/%s cand=%s near=%s fail=%s pose=%s/%s heading_src=%s anchor=%s reset=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s demo=%s/%s",
+                "step=%s mode=%s speed=%.2f fresh_ms=%.1f graph=%s/%s cand=%s near=%s fail=%s pose=%s/%s heading_src=%s anchor=%s reset=%s match=%.2f cte=%s heading=%s route=%.2f branch=%s target=%s safety=%s demo=%s/%s cv=%s/%s/%s",
                 self._step_count,
                 self.mode,
                 frame.speed_mps,
@@ -651,6 +793,9 @@ class AutopilotApp:
                 getattr(decision.reason, "name", str(decision.reason)),
                 "armed" if demo_status and demo_status.armed else "pending",
                 demo_status.reason if demo_status else "disabled",
+                "on" if self.ctx.cv_observer is not None else "off",
+                round(cv_observation.lane.lane_confidence, 2) if cv_observation else None,
+                cv_guard_reason,
             )
 
         self._prev_match = matched

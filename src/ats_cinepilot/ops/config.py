@@ -105,6 +105,23 @@ def validate_runtime_config(cfg: dict[str, Any], mode: str = "shadow") -> list[s
     if demo_contract_path and not Path(demo_contract_path).exists():
         issues.append(f"demo.contract_path does not exist: {demo_contract_path}")
 
+    if bool(cfg_get(cfg, "cv.enabled", False)):
+        if bool(cfg_get(cfg, "cv.vehicles.enabled", True)):
+            model_dir = Path(
+                str(
+                    cfg_get(
+                        cfg,
+                        "cv.vehicles.model_dir",
+                        "data/models/ssd_mobilenet_v3_large_coco_2020_01_14",
+                    )
+                )
+            )
+            download_allowed = bool(cfg_get(cfg, "cv.vehicles.download_allowed", True))
+            weights = model_dir / "frozen_inference_graph.pb"
+            pbtxt = model_dir / "graph.pbtxt"
+            if (not weights.exists() or not pbtxt.exists()) and not download_allowed:
+                issues.append("cv vehicle model is missing and cv.vehicles.download_allowed=false.")
+
     control_sink = cfg_get(cfg, "control.sink", "noop")
     if control_sink in {"module", "hybrid"} and mode.lower() == "active":
         if not cfg_get(cfg, "control.module_name"):

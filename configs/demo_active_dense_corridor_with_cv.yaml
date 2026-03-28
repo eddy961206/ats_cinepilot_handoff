@@ -1,0 +1,36 @@
+extends:
+  - demo_active_dense_corridor.yaml
+
+logging:
+  log_jsonl_path: data/logs/demo_active_dense_corridor_with_cv.jsonl
+
+cv:
+  enabled: true
+  show_window: false
+  save_video: true
+  save_frames: true
+  artifact_dir: data/artifacts/cv/demo_active_dense_corridor
+  summary_jsonl_path: data/logs/demo_active_dense_corridor_with_cv.cv.jsonl
+  lane:
+    enabled: true
+    roi_top_ratio: 0.55
+  vehicles:
+    enabled: true
+    download_allowed: true
+    model_dir: data/models/ssd_mobilenet_v3_large_coco_2020_01_14
+    confidence_threshold: 0.35
+    model_url: https://raw.githubusercontent.com/KelvinPuyam/Real-time-object-detection/main/frozen_inference_graph.pb
+    pbtxt_url: https://gist.githubusercontent.com/dkurt/54a8e8b51beb3bd3f770b79e56927bd7/raw/ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt
+    model_sha256: 3c95e720eed1bbaf264048ab8fbe6765e5b3a64fafe64020cd53ecd14ccf2c58
+    pbtxt_sha256: 1b66fa9884a25a1a12ab688b8c5fc4a41143d2111d89f7cd1c1536707a3ef1f6
+  barrier:
+    enabled: false
+  guard:
+    enabled: true
+    mode: disengage_only
+    enable_lane_guard: false
+    enable_lead_vehicle_guard: true
+    enable_barrier_guard: false
+    min_lane_confidence: 0.35
+    lead_vehicle_min_confidence: 0.60
+    lead_vehicle_min_bottom_y_px: 580

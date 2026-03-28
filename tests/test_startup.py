@@ -254,3 +254,41 @@ def test_validate_startup_requirements_rejects_identity_alignment_without_world_
         "demo active mode with map.alignment_mode=ats_absolute_identity "
         "requires telemetry.pose_frame_mode=world_absolute."
     ) in issues
+
+
+def test_build_startup_summary_lists_cv_details():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2", "pose_frame_mode": "world_absolute"},
+        "control": {"sink": "hybrid"},
+        "map": {
+            "source_name": "curated_dense_local_corridor_graph",
+            "alignment_mode": "ats_absolute_identity",
+        },
+        "cv": {
+            "enabled": True,
+            "show_window": False,
+            "save_video": True,
+            "save_frames": True,
+            "lane": {"enabled": True},
+            "vehicles": {"enabled": True},
+            "guard": {"enabled": True, "enable_lane_guard": False, "enable_lead_vehicle_guard": True},
+        },
+    }
+
+    lines = build_startup_summary(cfg, mode="active")
+
+    assert any("cv_enabled=yes lane=yes vehicles=yes barrier=no" in line for line in lines)
+    assert any("cv_artifacts show_window=no save_video=yes save_frames=yes" in line for line in lines)
+    assert any("cv_guard enabled=yes lane_guard=no lead_guard=yes" in line for line in lines)
+
+
+def test_validate_startup_requirements_rejects_cv_window_in_active_hybrid():
+    cfg = {
+        "telemetry": {"source": "shared_memory_v2"},
+        "control": {"sink": "hybrid"},
+        "cv": {"enabled": True, "show_window": True},
+    }
+
+    issues = validate_startup_requirements(cfg, mode="active")
+
+    assert "cv.show_window must be false in active mode to avoid stealing ATS focus." in issues

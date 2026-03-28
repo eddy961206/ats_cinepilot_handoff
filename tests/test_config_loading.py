@@ -68,3 +68,24 @@ def test_demo_active_dense_corridor_profile_resolves_expected_demo_contract():
     assert cfg_get(cfg, "demo.contract_path") == "configs/corridors/demo_dense_curated_corridor.yaml"
     assert cfg_get(cfg, "demo.max_speed_mps") == 2.5
     assert cfg_get(cfg, "logging.log_jsonl_path") == "data/logs/demo_active_dense_corridor.jsonl"
+
+
+def test_cv_observer_config_resolves_expected_model_and_artifact_paths():
+    cfg = resolve_config(["configs/cv_observer_dense_corridor.yaml"])
+
+    assert cfg_get(cfg, "cv.enabled") is True
+    assert cfg_get(cfg, "cv.artifact_dir") == "data/artifacts/cv/observer_dense_corridor"
+    assert cfg_get(cfg, "cv.summary_jsonl_path") == "data/logs/cv_observer_dense_corridor.cv.jsonl"
+    assert cfg_get(cfg, "cv.vehicles.model_dir") == "data/models/ssd_mobilenet_v3_large_coco_2020_01_14"
+
+
+def test_demo_active_dense_corridor_with_cv_resolves_expected_guard_contract():
+    cfg = resolve_config(["configs/demo_active_dense_corridor_with_cv.yaml"])
+
+    assert cfg_get(cfg, "cv.enabled") is True
+    assert cfg_get(cfg, "cv.show_window") is False
+    assert cfg_get(cfg, "cv.guard.enabled") is True
+    assert cfg_get(cfg, "cv.guard.mode") == "disengage_only"
+    assert cfg_get(cfg, "cv.guard.enable_lane_guard") is False
+    assert cfg_get(cfg, "cv.guard.enable_lead_vehicle_guard") is True
+    assert cfg_get(cfg, "logging.log_jsonl_path") == "data/logs/demo_active_dense_corridor_with_cv.jsonl"

@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-03-29T01:02:37+09:00",
+  "base_branch": "main",
+  "base_commit": "6eb557371a4806595f4e4fbfa0c28356367bcfd4",
+  "working_branch": "codex/cv-observer-handoff-harness",
+  "current_stage": "C3.5",
+  "current_focus": "cv_observer_overlay_guard_verified",
+  "last_known_good_commands": [
+    "powershell -ExecutionPolicy Bypass -File scripts\\run_cv_observer_dense_corridor.ps1 -Steps 80",
+    "powershell -ExecutionPolicy Bypass -File scripts\\run_demo_active_dense_corridor_with_cv.ps1 -ShadowSteps 8 -ActiveSteps 80 -ActiveCountdownSeconds 3",
+    "powershell -ExecutionPolicy Bypass -File scripts\\run_demo_active_dense_corridor_with_cv.ps1 -ShadowSteps 4 -ActiveSteps 40 -ActiveCountdownSeconds 3"
+  ],
+  "active_configs": [
+    "configs\\cv_observer_dense_corridor.yaml",
+    "configs\\demo_active_dense_corridor_with_cv.yaml"
+  ],
+  "latest_artifacts": [
+    "data\\artifacts\\cv\\observer_dense_corridor\\observer_overlay.mp4",
+    "data\\artifacts\\cv\\demo_active_dense_corridor\\observer_overlay.mp4",
+    "data\\logs\\cv_observer_dense_corridor.cv.jsonl",
+    "data\\logs\\demo_active_dense_corridor_with_cv.cv.jsonl"
+  ],
+  "open_blockers": [
+    "module_longitudinal_unusable",
+    "dense_demo_repeatability_unstable",
+    "lead_vehicle_guard_trigger_missing",
+    "barrier_observer_deferred"
+  ],
+  "head_commit": "89189c935a274bb3d0f989fe0de58b92659ef507"
+}
