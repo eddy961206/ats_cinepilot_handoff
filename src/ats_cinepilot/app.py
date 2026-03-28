@@ -56,6 +56,11 @@ from ats_cinepilot.safety.demo_cage import DemoCageConfig, DemoSafetyCage, resol
 
 logger = logging.getLogger(__name__)
 
+DEMO_OVERRIDEABLE_REASONS = {
+    DisengageReason.MATCH_LOST,
+    DisengageReason.ROUTE_CONFIDENCE_LOW,
+}
+
 
 def _score_breakdown_snapshot(score_breakdown: object) -> dict[str, float]:
     if not isinstance(score_breakdown, dict):
@@ -102,6 +107,23 @@ def _maybe_text(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _should_apply_active_control(
+    decision: SafetyDecision,
+    *,
+    demo_control_allowed: bool,
+    demo_brake_assist_active: bool,
+) -> bool:
+    if decision.allow_control:
+        return True
+    if demo_control_allowed and decision.reason in DEMO_OVERRIDEABLE_REASONS:
+        return True
+    if demo_brake_assist_active and (
+        decision.reason in DEMO_OVERRIDEABLE_REASONS or decision.reason == DisengageReason.DEMO_GUARD
+    ):
+        return True
+    return False
 
 
 @dataclass
@@ -508,7 +530,12 @@ class AutopilotApp:
                 decision = SafetyDecision(False, reason=DisengageReason.DEMO_GUARD)
 
         try:
-            if self.mode == "active" and (decision.allow_control or demo_control_allowed or demo_brake_assist_active):
+            apply_active_control = self.mode == "active" and _should_apply_active_control(
+                decision,
+                demo_control_allowed=demo_control_allowed,
+                demo_brake_assist_active=demo_brake_assist_active,
+            )
+            if apply_active_control:
                 self.ctx.control_sink.apply(demo_command)
             else:
                 self.ctx.control_sink.neutralize()

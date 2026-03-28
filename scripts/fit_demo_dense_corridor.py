@@ -10,6 +10,62 @@ from ats_cinepilot.ops.config import cfg_get, resolve_config
 from ats_cinepilot.ops.demo_corridor import fit_contract_to_live_pose, load_demo_corridor_contract
 
 
+def build_runtime_demo_thresholds(cfg: dict) -> dict:
+    return {
+        "contract_path": None,
+        "corridor_name": None,
+        "approved_graph_source": None,
+        "approved_alignment_mode": None,
+        "approved_edge_ids": None,
+        "approved_edge_sequence": None,
+        "start_edge_id": None,
+        "start_progress_min_m": None,
+        "start_progress_max_m": None,
+        "completion_edge_id": None,
+        "completion_max_progress_m": None,
+        "allowed_travel_directions": list(cfg_get(cfg, "demo.allowed_travel_directions", ["forward"])),
+        "allowed_direction_confidence_states": list(
+            cfg_get(cfg, "demo.allowed_direction_confidence_states", ["confident"])
+        ),
+        "allowed_pose_sources": list(
+            cfg_get(cfg, "demo.allowed_pose_sources", ["authoritative_absolute"])
+        ),
+        "allowed_heading_sources": list(
+            cfg_get(
+                cfg,
+                "demo.allowed_heading_sources",
+                ["absolute_position_delta", "absolute_position_hold"],
+            )
+        ),
+        "min_match_confidence": max(0.98, float(cfg_get(cfg, "demo.min_match_confidence", 0.98))),
+        "min_route_confidence": max(0.67, float(cfg_get(cfg, "demo.min_route_confidence", 0.67))),
+        "max_cross_track_error_m": min(0.45, float(cfg_get(cfg, "demo.max_cross_track_error_m", 0.45))),
+        "max_heading_error_deg": float(cfg_get(cfg, "demo.max_heading_error_deg", 6.0)),
+        "max_nearest_edge_distance_m": min(
+            0.45, float(cfg_get(cfg, "demo.max_nearest_edge_distance_m", 0.45))
+        ),
+        "max_speed_mps": float(cfg_get(cfg, "demo.max_speed_mps", 2.5)),
+        "max_graph_candidate_count": min(1, int(cfg_get(cfg, "demo.max_graph_candidate_count", 1))),
+        "require_anchor_locked": bool(cfg_get(cfg, "demo.require_anchor_locked", True)),
+        "require_no_discontinuity": bool(cfg_get(cfg, "demo.require_no_discontinuity", True)),
+        "arm_consecutive_frames": int(cfg_get(cfg, "demo.arm_consecutive_frames", 10)),
+        "bootstrap_max_speed_mps": float(cfg_get(cfg, "demo.bootstrap_max_speed_mps", 1.0)),
+        "bootstrap_throttle": float(cfg_get(cfg, "demo.bootstrap_throttle", 1.0)),
+        "bootstrap_min_match_confidence": float(
+            cfg_get(cfg, "demo.bootstrap_min_match_confidence", 0.60)
+        ),
+        "bootstrap_max_cross_track_error_m": float(
+            cfg_get(cfg, "demo.bootstrap_max_cross_track_error_m", 0.80)
+        ),
+        "bootstrap_max_nearest_edge_distance_m": float(
+            cfg_get(cfg, "demo.bootstrap_max_nearest_edge_distance_m", 0.80)
+        ),
+        "allow_speed_cap_brake_assist": bool(
+            cfg_get(cfg, "demo.allow_speed_cap_brake_assist", True)
+        ),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", action="append", required=True)
@@ -51,6 +107,23 @@ def main() -> None:
             f"{projection.distance_m:.3f}m > {args.max_fit_distance_m:.3f}m"
         )
 
+    demo_payload = build_runtime_demo_thresholds(cfg)
+    demo_payload.update(
+        {
+            "contract_path": args.output_contract,
+            "corridor_name": fitted.corridor_name,
+            "approved_graph_source": fitted.graph_source,
+            "approved_alignment_mode": fitted.alignment_mode,
+            "approved_edge_ids": [edge.edge_id for edge in fitted.ordered_edges],
+            "approved_edge_sequence": [edge.edge_id for edge in fitted.ordered_edges],
+            "start_edge_id": fitted.start_edge_id,
+            "start_progress_min_m": fitted.start_progress_min_m,
+            "start_progress_max_m": fitted.start_progress_max_m,
+            "completion_edge_id": fitted.end_edge_id,
+            "completion_max_progress_m": fitted.completion_max_progress_m,
+        }
+    )
+
     payload = {
         "corridor": {
             "name": fitted.corridor_name,
@@ -80,59 +153,7 @@ def main() -> None:
             "source_name": fitted.graph_source,
             "alignment_mode": fitted.alignment_mode,
         },
-        "demo": {
-            "contract_path": args.output_contract,
-            "corridor_name": fitted.corridor_name,
-            "approved_graph_source": fitted.graph_source,
-            "approved_alignment_mode": fitted.alignment_mode,
-            "approved_edge_ids": [edge.edge_id for edge in fitted.ordered_edges],
-            "approved_edge_sequence": [edge.edge_id for edge in fitted.ordered_edges],
-            "start_edge_id": fitted.start_edge_id,
-            "start_progress_min_m": fitted.start_progress_min_m,
-            "start_progress_max_m": fitted.start_progress_max_m,
-            "completion_edge_id": fitted.end_edge_id,
-            "completion_max_progress_m": fitted.completion_max_progress_m,
-            "allowed_travel_directions": list(cfg_get(cfg, "demo.allowed_travel_directions", ["forward"])),
-            "allowed_direction_confidence_states": list(
-                cfg_get(cfg, "demo.allowed_direction_confidence_states", ["confident"])
-            ),
-            "allowed_pose_sources": list(
-                cfg_get(cfg, "demo.allowed_pose_sources", ["authoritative_absolute"])
-            ),
-            "allowed_heading_sources": list(
-                cfg_get(
-                    cfg,
-                    "demo.allowed_heading_sources",
-                    ["absolute_position_delta", "absolute_position_hold"],
-                )
-            ),
-            "min_match_confidence": max(0.98, float(cfg_get(cfg, "demo.min_match_confidence", 0.98))),
-            "min_route_confidence": max(0.67, float(cfg_get(cfg, "demo.min_route_confidence", 0.67))),
-            "max_cross_track_error_m": min(0.45, float(cfg_get(cfg, "demo.max_cross_track_error_m", 0.45))),
-            "max_heading_error_deg": float(cfg_get(cfg, "demo.max_heading_error_deg", 6.0)),
-            "max_nearest_edge_distance_m": min(
-                0.45, float(cfg_get(cfg, "demo.max_nearest_edge_distance_m", 0.45))
-            ),
-            "max_speed_mps": float(cfg_get(cfg, "demo.max_speed_mps", 2.5)),
-            "max_graph_candidate_count": min(1, int(cfg_get(cfg, "demo.max_graph_candidate_count", 1))),
-            "require_anchor_locked": bool(cfg_get(cfg, "demo.require_anchor_locked", True)),
-            "require_no_discontinuity": bool(cfg_get(cfg, "demo.require_no_discontinuity", True)),
-            "arm_consecutive_frames": int(cfg_get(cfg, "demo.arm_consecutive_frames", 10)),
-            "bootstrap_max_speed_mps": max(1.0, float(cfg_get(cfg, "demo.bootstrap_max_speed_mps", 1.0))),
-            "bootstrap_throttle": max(0.7, float(cfg_get(cfg, "demo.bootstrap_throttle", 1.0))),
-            "bootstrap_min_match_confidence": max(
-                0.60, float(cfg_get(cfg, "demo.bootstrap_min_match_confidence", 0.60))
-            ),
-            "bootstrap_max_cross_track_error_m": min(
-                0.80, float(cfg_get(cfg, "demo.bootstrap_max_cross_track_error_m", 0.80))
-            ),
-            "bootstrap_max_nearest_edge_distance_m": min(
-                0.80, float(cfg_get(cfg, "demo.bootstrap_max_nearest_edge_distance_m", 0.80))
-            ),
-            "allow_speed_cap_brake_assist": bool(
-                cfg_get(cfg, "demo.allow_speed_cap_brake_assist", True)
-            ),
-        },
+        "demo": demo_payload,
     }
 
     output_contract = Path(args.output_contract)
