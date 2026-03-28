@@ -2,53 +2,49 @@
 
 ## Done This Session
 
-- [x] correct integration base 확인
-  - `main`이 아니라 `codex/real-ats-world-graph-alignment@3443e947...` 기반
-- [x] straight active baseline 재현
-- [x] gentle-curve toy corridor 자산 추가
-  - `data/maps/cache/demo_gentle_curve_graph.json`
-  - `configs/demo_active_gentle_curve.yaml`
-  - `scripts/run_demo_active_gentle_curve.ps1`
-- [x] curved demo startup summary / log summary 보강
-- [x] curved demo 실험 노트 파일 추가
-  - `docs/ACTIVE_DEMO_EXPERIMENT_LOG.md`
-- [x] root-cause narrowing
-  - steering sign은 1순위 병목이 아님
-  - speed cap / digital longitudinal bluntness가 먼저 걸림
-- [x] demo-only keyboard longitudinal PWM 경로 추가
-- [x] first gentle-curve constrained live active demo 성공
-  - `steering_abs_max=0.209`
-  - `non_trivial_steering_count=32`
-  - `first_MATCH_LOST=92`
+- [x] stacked integration lineage를 `main`으로 consolidation
+  - PR `#10`
+  - merge commit `880cfa5e17da5a9aca8ad304ed350b35dee72021`
+- [x] dense curated corridor base contract를 현재 verified freeway chain으로 교체
+- [x] corridor-local translated graph helper 추가
+  - `scripts/fit_demo_dense_corridor.py`
+  - `scripts/export_demo_dense_corridor.py`
+- [x] stop preflight 추가
+  - `scripts/ensure_demo_stop.py`
+- [x] dense demo runner를 runtime fit 기반으로 변경
+  - `scripts/run_demo_active_dense_corridor.ps1`
+- [x] demo cage start-window priming / bootstrap threshold 보정
+- [x] demo override가 `TELEMETRY_STALE` 같은 일반 safety failure를 덮어쓰지 않게 harden
+- [x] first curated denser-corridor live active demo 성공
+  - `safety NONE = 92`
+  - `steering_abs_max = 0.300`
+  - `non_trivial_steering_count = 35`
 
 ## P0 Next
 
-- [ ] `run_demo_active_gentle_curve.ps1`를 human-run 기준으로 반복 재현
-- [ ] curved demo에서 speed cap guard를 덜 거칠게 만들도록 demo-only longitudinal shaping을 한 단계 더 다듬기
-- [ ] curated denser corridor 1개로 확장 가능한지 판단
-- [ ] module longitudinal(`aforward` / `abackward`) 실패 원인 isolate 계속
+- [ ] dense curated corridor demo 반복 재현성 고정
+- [ ] demo-only longitudinal shaping을 한 단계 더 다듬기
+- [ ] curated multi-edge corridor 1개로 확장
+- [ ] dense demo helper 결과를 operator-facing artifact로 더 간단히 남기기
 
 ## P1
 
-- [ ] hybrid sink focus preflight를 더 강하게 안내하거나 probe로 노출할지 결정
-- [ ] gentle-curve run의 replay-style artifact를 남겨 arming / disengage 비교하기
-- [ ] curve demo throttle shaping taxonomy 문서화
-  - keyboard focus dependency
-  - duty-cycle granularity
-  - speed cap overshoot
-  - corridor geometry mismatch
+- [ ] runtime corridor fit summary를 startup summary / log header에 더 직접 노출
+- [ ] dense corridor 시작 구간 좌표 / edge chain을 runbook에 더 명확히 적기
+- [ ] module longitudinal(`aforward` / `abackward`) 실패 원인 isolate 계속
+- [ ] dense demo replay artifact를 남겨 bootstrap / armed / brake-assist 구간 비교하기
 
 ## Later
 
-- [ ] curated denser active corridor
-- [ ] constrained route source
+- [ ] curated multi-edge active demo
+- [ ] first constrained route-aware demo
 - [ ] broader shadow autonomy
-- [ ] Active Mode 일반화
+- [ ] general Active Mode
 
 ## Explicitly Out of Scope Right Now
 
+- [ ] general route-following
+- [ ] complex intersections
 - [ ] generic CV driving stack
 - [ ] wheel actuation
-- [ ] broad route-following autonomy
-- [ ] complex intersection handling
 - [ ] dense-local general active driving
